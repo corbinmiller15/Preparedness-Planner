@@ -157,12 +157,13 @@ function memberCalories(
   const base = memberBase(person);
   const ageResult = resolveAge(person, asOf);
   if (!ageResult.ok) {
+    const underTwo = ageResult.message.key === "engine.food.under_two";
     return {
       ...base,
       status: "no_source_data",
       message: ageResult.message,
-      factIds: [],
-      gapIds: [],
+      factIds: underTwo ? ["GAP-02"] : [],
+      gapIds: underTwo ? ["GAP-02"] : [],
     };
   }
   if (ageResult.age < 2) {

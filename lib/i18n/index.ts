@@ -47,6 +47,8 @@ const enUS = {
   "engine.food.missing_age": "An age or birth year is required to use the USDA calorie table.",
   "engine.food.missing_as_of": "A birth year needs an as-of date before an age can be calculated.",
   "engine.food.invalid_age": "That age cannot be used with the USDA calorie table.",
+  "engine.food.age_not_exact":
+    "An exact age needs a birth month and, during that month, the birth day. No calorie figure is filled in until then.",
   "engine.food.missing_sex":
     "The USDA table is split by male and female. No figure is filled in when sex is missing or unspecified.",
   "engine.food.missing_activity":

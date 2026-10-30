@@ -58,6 +58,8 @@ export type Database = {
           label: string;
           age: number | null;
           birth_year: number | null;
+          birth_month: number | null;
+          birth_day: number | null;
           sex: Sex | null;
           pregnancy_status: PregnancyStatus | null;
           is_child: boolean;
@@ -72,6 +74,8 @@ export type Database = {
           label: string;
           age?: number | null;
           birth_year?: number | null;
+          birth_month?: number | null;
+          birth_day?: number | null;
           sex?: Sex | null;
           pregnancy_status?: PregnancyStatus | null;
           is_child?: boolean;
@@ -82,6 +86,8 @@ export type Database = {
           label?: string;
           age?: number | null;
           birth_year?: number | null;
+          birth_month?: number | null;
+          birth_day?: number | null;
           sex?: Sex | null;
           pregnancy_status?: PregnancyStatus | null;
           is_child?: boolean;

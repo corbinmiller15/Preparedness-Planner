@@ -18,6 +18,13 @@ export type PlanPerson = {
   label: string;
   age: number | null;
   birthYear: number | null;
+  /**
+   * 1–12. With `birthYear`, completed age is exact except during the birth month,
+   * when `birthDay` is also required.
+   */
+  birthMonth: number | null;
+  /** Day of the month. With `birthYear` and `birthMonth`, completed age is exact. */
+  birthDay: number | null;
   sex: "female" | "male" | "unspecified" | null;
   pregnancyStatus: PregnancyStatus | null;
   isChild: boolean;
