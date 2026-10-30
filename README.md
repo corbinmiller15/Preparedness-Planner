@@ -55,6 +55,7 @@ HUD's USPS ZIP-county crosswalk publishes a residential-address ratio (`RES_RATI
 - About: https://www.fema.gov/flood-maps/products-tools/national-risk-index
 - Open data and citation: https://www.fema.gov/about/openfema/data-sets/national-risk-index-data
 - Ratings and scores are passed through from FEMA. Cite FEMA National Risk Index when you show a live rating.
+- Inland flooding is `IFLD_RISKR` and `IFLD_RISKS`, mapped to Flood with coastal flooding.
 - A missing county returns `not_found`. A timeout, a network failure, an HTTP error, or a response that cannot be read returns `unavailable` with a `reason` of `timeout`, `network`, `http`, or `invalid_response`. The timeout covers the response body as well as the headers. Live mode keeps that failure visible.
 - A composite of Insufficient Data, No Rating, or Not Applicable is returned with a null rating and `engine.hazard.insufficient_data`. That is not a low-risk result. Puerto Rico and several territories use this label.
 - Successful county responses are kept in an in-memory LRU for 24 hours (`HAZARD_PROVIDER_CACHE_TTL_MS`, `0` disables it). The crosswalk file is read once per process.
@@ -97,10 +98,11 @@ npm run lint
 npm run format:check
 npm run typecheck
 npm run test
+npm run test:contract
 npm run test:e2e
 npm run build
 npm run data:zip-county
 npm run hazard:lookup -- 70112
 ```
 
-`npm run test` is Vitest. `npm run test:e2e` is a Playwright smoke test of the placeholder page.
+`npm run test` is Vitest and stays offline. `npm run test:contract` calls the live FEMA county layer and checks that every requested field is still present. It is not part of `npm test` or CI. `.github/workflows/nri-contract.yml` runs it daily and when started by hand. `npm run test:e2e` is a Playwright smoke test of the placeholder page.

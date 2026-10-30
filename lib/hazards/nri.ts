@@ -1,32 +1,44 @@
 import type { HazardRating, HazardRatingLabel, NriAttributes } from "@/lib/hazards/types";
 
-/** County National Risk Index hazard keys and the attribute prefix used by the FEMA layer. */
+const NRI_RATING_SUFFIX = "RISKR";
+const NRI_SCORE_SUFFIX = "RISKS";
+
+function nriHazard(key: string, name: string) {
+  return {
+    key,
+    name,
+    ratingField: `${key}_${NRI_RATING_SUFFIX}`,
+    scoreField: `${key}_${NRI_SCORE_SUFFIX}`,
+  };
+}
+
+/** County hazards. Rating and score fields are requested from FEMA and parsed from the reply. */
 export const NRI_HAZARDS = [
-  { key: "AVLN", name: "Avalanche" },
-  { key: "CFLD", name: "Coastal Flooding" },
-  { key: "CWAV", name: "Cold Wave" },
-  { key: "DRGT", name: "Drought" },
-  { key: "ERQK", name: "Earthquake" },
-  { key: "HAIL", name: "Hail" },
-  { key: "HWAV", name: "Heat Wave" },
-  { key: "HRCN", name: "Hurricane" },
-  { key: "ISTM", name: "Ice Storm" },
-  { key: "LNDS", name: "Landslide" },
-  { key: "LTNG", name: "Lightning" },
-  { key: "RFLD", name: "Riverine Flooding" },
-  { key: "SWND", name: "Strong Wind" },
-  { key: "TRND", name: "Tornado" },
-  { key: "TSUN", name: "Tsunami" },
-  { key: "VLCN", name: "Volcanic Activity" },
-  { key: "WFIR", name: "Wildfire" },
-  { key: "WNTW", name: "Winter Weather" },
+  nriHazard("AVLN", "Avalanche"),
+  nriHazard("CFLD", "Coastal Flooding"),
+  nriHazard("CWAV", "Cold Wave"),
+  nriHazard("DRGT", "Drought"),
+  nriHazard("ERQK", "Earthquake"),
+  nriHazard("HAIL", "Hail"),
+  nriHazard("HWAV", "Heat Wave"),
+  nriHazard("HRCN", "Hurricane"),
+  nriHazard("ISTM", "Ice Storm"),
+  nriHazard("LNDS", "Landslide"),
+  nriHazard("LTNG", "Lightning"),
+  nriHazard("IFLD", "Inland Flooding"),
+  nriHazard("SWND", "Strong Wind"),
+  nriHazard("TRND", "Tornado"),
+  nriHazard("TSUN", "Tsunami"),
+  nriHazard("VLCN", "Volcanic Activity"),
+  nriHazard("WFIR", "Wildfire"),
+  nriHazard("WNTW", "Winter Weather"),
 ] as const;
 
 /** Ready.gov hazard name for an NRI key, when the facts sheet has actions for it. */
 export const NRI_KEY_TO_HAZARD: Record<string, string | undefined> = {
   HRCN: "Hurricane",
   CFLD: "Flood",
-  RFLD: "Flood",
+  IFLD: "Flood",
   WFIR: "Wildfire",
   ERQK: "Earthquake",
   TRND: "Tornado",
@@ -35,6 +47,24 @@ export const NRI_KEY_TO_HAZARD: Record<string, string | undefined> = {
   CWAV: "Winter storm",
   HWAV: "Extreme heat",
 };
+
+const NRI_COUNTY_FIELDS = [
+  "STCOFIPS",
+  "COUNTY",
+  "STATE",
+  "STATEABBRV",
+  "STATEFIPS",
+  "RISK_RATNG",
+  "RISK_SCORE",
+] as const;
+
+/** Attributes the county query requests. Parsing reads hazard ratings from this same list. */
+export const NRI_REQUESTED_FIELDS: readonly string[] = [
+  ...NRI_COUNTY_FIELDS,
+  ...NRI_HAZARDS.flatMap((hazard) => [hazard.ratingField, hazard.scoreField]),
+];
+
+const hazardByRatingField = new Map(NRI_HAZARDS.map((hazard) => [hazard.ratingField, hazard]));
 
 const RATING_LABELS: Record<string, HazardRatingLabel> = {
   "Very High": "very_high",
@@ -83,16 +113,17 @@ export function parseNriAttributes(attributes: NriAttributes): {
 } {
   const composite = parseNriRating(attributes.RISK_RATNG);
   const hazards: HazardRating[] = [];
-  for (const hazard of NRI_HAZARDS) {
-    const ratingField = `${hazard.key}_RISKR`;
-    if (!Object.prototype.hasOwnProperty.call(attributes, ratingField)) continue;
-    const parsed = parseNriRating(attributes[ratingField]);
+  for (const field of NRI_REQUESTED_FIELDS) {
+    const hazard = hazardByRatingField.get(field);
+    if (!hazard) continue;
+    if (!Object.prototype.hasOwnProperty.call(attributes, field)) continue;
+    const parsed = parseNriRating(attributes[field]);
     hazards.push({
       key: hazard.key,
       name: hazard.name,
       rating: parsed.rating,
       raw: parsed.raw,
-      score: scoreValue(attributes[`${hazard.key}_RISKS`]),
+      score: scoreValue(attributes[hazard.scoreField]),
     });
   }
   const compositePresent = Object.prototype.hasOwnProperty.call(attributes, "RISK_RATNG");
@@ -104,18 +135,6 @@ export function parseNriAttributes(attributes: NriAttributes): {
   };
 }
 
-export function nriOutFields(): string[] {
-  const fields = [
-    "STCOFIPS",
-    "COUNTY",
-    "STATE",
-    "STATEABBRV",
-    "STATEFIPS",
-    "RISK_RATNG",
-    "RISK_SCORE",
-  ];
-  for (const hazard of NRI_HAZARDS) {
-    fields.push(`${hazard.key}_RISKR`, `${hazard.key}_RISKS`);
-  }
-  return fields;
+export function nriOutFields(): readonly string[] {
+  return NRI_REQUESTED_FIELDS;
 }

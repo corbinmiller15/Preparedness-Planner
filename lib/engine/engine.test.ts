@@ -288,7 +288,7 @@ describe("preparedness engine", () => {
     expect(plan.hazards.disclaimer?.key).toBe("engine.hazard.fixture_disclaimer");
     const flood = plan.hazards.groups.find((group) => group.hazard === "Flood");
     expect(flood?.rating).toBe("very_high");
-    expect(flood?.nriKeys).toEqual(expect.arrayContaining(["CFLD", "RFLD"]));
+    expect(flood?.nriKeys).toEqual(expect.arrayContaining(["CFLD", "IFLD"]));
     expect(flood?.actions.map((action) => action.factId)).toEqual([
       "HAZ-02-B",
       "HAZ-02-D",
