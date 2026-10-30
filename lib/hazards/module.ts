@@ -1,7 +1,12 @@
 import { HAZARD_NAMES, hazardActions } from "@/lib/facts/hazards";
 import { higherRating, NRI_KEY_TO_HAZARD } from "@/lib/hazards/nri";
 import type { HazardProvider, HazardRating, HazardRatingLabel } from "@/lib/hazards/types";
-import { normalizeCountry, type PostalRegionResolver, type RegionRef } from "@/lib/location/types";
+import {
+  normalizeCountry,
+  type PostalRegionResolver,
+  type RankedCountyRef,
+  type RegionRef,
+} from "@/lib/location/types";
 import type { LocalMessage } from "@/lib/i18n";
 
 export type HazardActionItem = {
@@ -40,10 +45,20 @@ export type HazardModuleResult =
       country: string;
       postalCode: string;
       region: RegionRef;
+      /** Every county for this postal code, highest weight first. Omitted for the fixture resolver. */
+      counties?: readonly RankedCountyRef[];
       providerId: string;
       provenance: "fixture" | "live";
       disclaimer: LocalMessage | null;
-      composite: { rating: HazardRatingLabel; score: number | null; raw: string | null } | null;
+      composite: {
+        rating: HazardRatingLabel | null;
+        score: number | null;
+        raw: string | null;
+      } | null;
+      /** Set when the composite label is not a comparable risk level. */
+      ratingNote: LocalMessage | null;
+      /** Set when the ZIP meets more than one county. */
+      areaNote: LocalMessage | null;
       groups: HazardGroup[];
       otherRatings: HazardRating[];
       /** US Ready.gov actions are not attached outside the US. */
@@ -174,17 +189,55 @@ export async function buildHazardModule(
     }
   }
 
+  const comparable = presentComposite(ratings.composite);
+  const region = { ...resolved.region };
+  if (ratings.area?.county) region.name = ratings.area.county;
+  if (ratings.area?.state) region.subdivisionCode = ratings.area.state;
+
   return {
     status: "ok",
     country,
     postalCode: input.postalCode,
-    region: resolved.region,
+    region,
+    ...(resolved.counties ? { counties: resolved.counties } : {}),
     providerId: ratings.providerId,
     provenance: ratings.provenance,
     disclaimer: ratings.disclaimer,
-    composite: ratings.composite,
+    composite: comparable.composite,
+    ratingNote: comparable.ratingNote,
+    areaNote: areaNoteFor(resolved.counties),
     groups,
     otherRatings,
     actionsIncluded,
+  };
+}
+
+const NON_COMPARABLE = new Set<HazardRatingLabel>([
+  "insufficient_data",
+  "no_rating",
+  "not_applicable",
+]);
+
+function areaNoteFor(counties: readonly RankedCountyRef[] | undefined): LocalMessage | null {
+  if (!counties || counties.length < 2) return null;
+  const kind = counties[0]?.weightKind;
+  return {
+    key:
+      kind === "population" ? "engine.hazard.population_weight" : "engine.hazard.land_area_weight",
+  };
+}
+
+function presentComposite(
+  composite: { rating: HazardRatingLabel; score: number | null; raw: string | null } | null,
+): {
+  composite: { rating: HazardRatingLabel | null; score: number | null; raw: string | null } | null;
+  ratingNote: LocalMessage | null;
+} {
+  if (!composite || !NON_COMPARABLE.has(composite.rating)) {
+    return { composite, ratingNote: null };
+  }
+  return {
+    composite: { rating: null, score: null, raw: composite.raw },
+    ratingNote: { key: "engine.hazard.insufficient_data" },
   };
 }

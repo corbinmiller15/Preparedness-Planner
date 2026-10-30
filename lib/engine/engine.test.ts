@@ -427,6 +427,7 @@ describe("preparedness engine", () => {
       resolvers: [createUsZipCountyResolver()],
       providers: [
         createFemaNriHazardProvider({
+          cacheTtlMs: 0,
           fetchImpl: async () => new Response(JSON.stringify({ features: [{ attributes: null }] })),
         }),
       ],
@@ -437,11 +438,15 @@ describe("preparedness engine", () => {
       resolvers: [createUsZipCountyResolver()],
       providers: [
         createFemaNriHazardProvider({
+          cacheTtlMs: 0,
           fetchImpl: async () => new Response("not-json", { status: 200 }),
         }),
       ],
     });
-    expect(malformed.hazards.status).toBe("provider_error");
+    expect(malformed.hazards).toMatchObject({
+      status: "unavailable",
+      message: { key: "engine.hazard.nri_invalid_response" },
+    });
   });
 
   it("names pet water and food as an assumption on every tier", async () => {
