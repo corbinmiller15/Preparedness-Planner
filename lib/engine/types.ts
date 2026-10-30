@@ -134,6 +134,8 @@ export type MemberCalories =
       personId: string;
       label: string;
       age: number;
+      /** False when the age is the lower figure from a birth year, or from a birth month without a day. */
+      ageExact: boolean;
       dailyKcal: number;
       tierKcal: number;
       days: number;
@@ -149,6 +151,7 @@ export type MemberCalories =
       personId: string;
       label: string;
       age: number;
+      ageExact: boolean;
       dailyKcal: number;
       tierKcal: number;
       days: number;

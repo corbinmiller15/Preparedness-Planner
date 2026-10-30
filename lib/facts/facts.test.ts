@@ -7,8 +7,9 @@ import {
   kcalFor,
   type ActivityLevel,
 } from "@/lib/facts/calories";
-import { ALL_FACTS, FURTHER_READING, getFact, KIT_FACTS } from "@/lib/facts";
+import { ALL_FACTS, FURTHER_READING, getFact, KIT_FACTS, TIER_FACTS } from "@/lib/facts";
 import { HAZARD_ACTION_FACTS, HAZARD_NAMES, hazardActions } from "@/lib/facts/hazards";
+import { SHEET_HAZARDS, SHEET_KIT, SHEET_TIERS, SHEET_WATER } from "@/lib/facts/sheet-text-fixture";
 import type { CalorieSex } from "@/lib/facts/types";
 import {
   USDA_AGE_BOUNDS,
@@ -130,6 +131,20 @@ describe("fact catalog", () => {
     expect(calorieBandForAge(75)?.id).toBe("CAL-029");
     expect(calorieBandForAge(76)?.id).toBe("CAL-030");
     expect(calorieBandForAge(76)?.maxAge).toBeNull();
+  });
+
+  it("matches water, kit, tier, and hazard sentences from the facts sheet", () => {
+    expect(WATER_FACTS.map((fact) => [fact.id, fact.field, fact.text])).toEqual([...SHEET_WATER]);
+    expect(KIT_FACTS.map((fact) => [fact.id, fact.group, fact.text])).toEqual([...SHEET_KIT]);
+    expect(TIER_FACTS.map((fact) => [fact.id, fact.tier, fact.guidance, fact.quantity])).toEqual([
+      ...SHEET_TIERS,
+    ]);
+    expect(
+      SHEET_HAZARDS.map(([hazard]) => {
+        const actions = hazardActions(hazard);
+        return [hazard, actions[0]?.text, actions[1]?.text, actions[2]?.text];
+      }),
+    ).toEqual(SHEET_HAZARDS.map((row) => [...row]));
   });
 
   it("stores kit and water facts without copying link-only publishers into the text", () => {

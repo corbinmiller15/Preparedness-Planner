@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildPreparednessPlan, parseIsoDate, resolveAge, type PlanPerson } from "@/lib/engine";
+import { translate } from "@/lib/i18n";
 
 function person(overrides: Partial<PlanPerson> = {}): PlanPerson {
   return {
@@ -48,43 +49,56 @@ describe("calendar dates and exact age", () => {
       person({ birthYear: 2024, birthMonth: 12, birthDay: 15 }),
       "2026-10-30",
     );
-    expect(bornDecember).toEqual({ ok: true, age: 1 });
+    expect(bornDecember).toEqual({ ok: true, age: 1, exact: true });
 
     const monthOnly = resolveAge(person({ birthYear: 2024, birthMonth: 12 }), "2026-10-30");
-    expect(monthOnly).toEqual({ ok: true, age: 1 });
+    expect(monthOnly).toEqual({ ok: true, age: 1, exact: true });
 
     const turnedTwo = resolveAge(
       person({ birthYear: 2024, birthMonth: 12, birthDay: 15 }),
       "2026-12-15",
     );
-    expect(turnedTwo).toEqual({ ok: true, age: 2 });
+    expect(turnedTwo).toEqual({ ok: true, age: 2, exact: true });
   });
 
-  it("does not treat a birth year as an exact age", () => {
+  it("uses the lower birth-year age and still withholds children under 2", () => {
     expect(resolveAge(person({ birthYear: 2024 }), "2026-01-15")).toEqual({
       ok: false,
       message: { key: "engine.food.under_two" },
     });
     expect(resolveAge(person({ birthYear: 2000 }), "2026-10-30")).toEqual({
-      ok: false,
+      ok: true,
+      age: 25,
+      exact: false,
       message: { key: "engine.food.age_not_exact" },
     });
+    expect(translate({ key: "engine.food.age_not_exact" })).toContain(
+      "add a full birth date for exact numbers",
+    );
     expect(resolveAge(person({ birthYear: 2000, birthMonth: 1 }), "2026-10-30")).toEqual({
       ok: true,
       age: 26,
+      exact: true,
     });
     expect(
       resolveAge(person({ birthYear: 2000, birthMonth: 11, birthDay: 1 }), "2026-10-30"),
-    ).toEqual({ ok: true, age: 25 });
+    ).toEqual({ ok: true, age: 25, exact: true });
     expect(resolveAge(person({ birthYear: 2000, birthMonth: 10 }), "2026-10-15")).toEqual({
-      ok: false,
+      ok: true,
+      age: 25,
+      exact: false,
       message: { key: "engine.food.age_not_exact" },
     });
     expect(resolveAge(person({ birthYear: 2000, birthMonth: 10 }), "2026-10-31")).toEqual({
       ok: true,
       age: 26,
+      exact: true,
     });
-    expect(resolveAge(person({ birthYear: 2000 }), "2026-12-31")).toEqual({ ok: true, age: 26 });
+    expect(resolveAge(person({ birthYear: 2000 }), "2026-12-31")).toEqual({
+      ok: true,
+      age: 26,
+      exact: true,
+    });
   });
 
   it("leaves a December 2024 child out of the calorie total", async () => {

@@ -55,51 +55,42 @@ const underTwo: { ok: false; message: LocalMessage } = {
   message: { key: "engine.food.under_two" },
 };
 
-const notExact: { ok: false; message: LocalMessage } = {
-  ok: false,
-  message: { key: "engine.food.age_not_exact" },
-};
+const approximate: LocalMessage = { key: "engine.food.age_not_exact" };
 
-function acceptAge(age: number): { ok: true; age: number } | { ok: false; message: LocalMessage } {
+export type ResolvedAge =
+  | { ok: true; age: number; exact: true }
+  | { ok: true; age: number; exact: false; message: LocalMessage }
+  | { ok: false; message: LocalMessage };
+
+function acceptAge(age: number): ResolvedAge {
   if (!Number.isInteger(age) || age < 0 || age > 130) return invalidAge;
-  return { ok: true, age };
+  return { ok: true, age, exact: true };
 }
 
 /**
- * A birth year spans two completed ages until the birthday is known.
- * If either possible age is under 2, withhold the calorie row instead of
- * assigning the age-2 figure.
+ * Birth year alone spans two completed ages until the birthday.
+ * Calories use the lower one: as-of year − birth year − 1, and never below 0.
+ * The result is flagged not exact. Under 2 stays outside the USDA table.
+ * On 31 December every birthday that year has passed, so the age is exact
+ * (as-of year − birth year) and is not run through this helper.
  */
-function fromRange(
-  minAge: number,
-  maxAge: number,
-): { ok: true; age: number } | { ok: false; message: LocalMessage } {
+function conservativeAge(minAge: number): ResolvedAge {
+  const age = Math.max(0, minAge);
+  if (!Number.isInteger(age) || age > 130) return invalidAge;
+  if (age < 2) return underTwo;
+  return { ok: true, age, exact: false, message: approximate };
+}
+
+function fromRange(minAge: number, maxAge: number): ResolvedAge {
   if (maxAge < 0 || minAge > 130) return invalidAge;
-  if (maxAge < 2 || minAge < 2) return underTwo;
-  return notExact;
+  if (minAge < 2) return underTwo;
+  return conservativeAge(minAge);
 }
 
-/**
- * Completed age from a birth year alone.
- * A year is not an exact age, so this returns a number only on 31 December,
- * when every birthday in that year has already happened. Impossible dates return null.
- */
-export function ageFromBirthYear(birthYear: number, asOf: string): number | null {
-  const date = parseIsoDate(asOf);
-  if (!date || !Number.isInteger(birthYear) || birthYear > date.year || birthYear < 1) return null;
-  if (date.month !== 12 || date.day !== 31) return null;
-  const age = date.year - birthYear;
-  if (age < 0 || age > 130) return null;
-  return age;
-}
-
-export function resolveAge(
-  person: PlanPerson,
-  asOf: string | undefined,
-): { ok: true; age: number } | { ok: false; message: LocalMessage } {
+export function resolveAge(person: PlanPerson, asOf: string | undefined): ResolvedAge {
   if (person.age !== null) {
     if (!Number.isInteger(person.age) || person.age < 0 || person.age > 130) return invalidAge;
-    return { ok: true, age: person.age };
+    return { ok: true, age: person.age, exact: true };
   }
   if (person.birthYear === null) {
     return { ok: false, message: { key: "engine.food.missing_age" } };

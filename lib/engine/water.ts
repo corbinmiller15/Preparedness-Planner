@@ -11,7 +11,8 @@ function hasText(value: string | null): boolean {
 }
 
 export function personMayNeedMoreWater(person: PlanPerson, age: number | null): boolean {
-  if (person.isChild || (age !== null && age < 18)) return true;
+  // An unresolved age may still be a child, including a birth-year row with isChild left false.
+  if (age === null || person.isChild || age < 18) return true;
   if (hasText(person.specialNeeds)) return true;
   const status = person.pregnancyStatus;
   return status !== null && status !== "none";
@@ -54,6 +55,7 @@ export function planWater(args: {
     factIds.push("WTR-003");
   }
   if (args.hotClimate) factIds.push("WTR-008");
+  factIds.push("WTR-009", "WTR-011", "GAP-06");
 
   const notes: SourcedNote[] = [];
   if (args.context.tier === "go_bag") {
@@ -77,6 +79,16 @@ export function planWater(args: {
       gapIds: [],
     });
   }
+  notes.push({
+    message: { key: "engine.water.altitude_dry" },
+    factIds: ["WTR-009"],
+    gapIds: [],
+  });
+  notes.push({
+    message: { key: "engine.water.rotation" },
+    factIds: ["WTR-011", "GAP-06"],
+    gapIds: ["GAP-06"],
+  });
   const special = args.people.some((person) =>
     personMayNeedMoreWater(person, args.ages.get(person.id) ?? null),
   );

@@ -223,6 +223,13 @@ function memberCalories(
       gapIds: ["GAP-02"],
     },
   ];
+  if (!ageResult.exact) {
+    notes.push({
+      message: ageResult.message,
+      factIds: [],
+      gapIds: [],
+    });
+  }
   const activity = {
     activityLevel: person.activityLevel,
     activityDefinition: ACTIVITY_DEFINITIONS[person.activityLevel],
@@ -233,6 +240,7 @@ function memberCalories(
       ...base,
       status: "partial",
       age: ageResult.age,
+      ageExact: ageResult.exact,
       dailyKcal: dailyBase,
       tierKcal: dailyBase * days,
       days,
@@ -261,6 +269,7 @@ function memberCalories(
     ...base,
     status: "calculated",
     age: ageResult.age,
+    ageExact: ageResult.exact,
     dailyKcal,
     tierKcal: dailyKcal * days,
     days,

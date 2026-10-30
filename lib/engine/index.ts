@@ -1,11 +1,11 @@
 export {
-  ageFromBirthYear,
   completedAge,
   daysInMonth,
   isRealCalendarDate,
   parseIsoDate,
   resolveAge,
 } from "@/lib/engine/ages";
+export type { ResolvedAge } from "@/lib/engine/ages";
 export { budgetPathOffers, itemAdaptation, supplyItem } from "@/lib/engine/adaptations";
 export { planFood } from "@/lib/engine/calories";
 export { planFoodSafety, planKit } from "@/lib/engine/checklists";

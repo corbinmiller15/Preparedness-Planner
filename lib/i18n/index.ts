@@ -40,6 +40,10 @@ const enUS = {
     "Children, pregnant or breastfeeding people, and people who are ill or have special needs may need more water. No numeric multiplier is published for that, so the total is not increased.",
   "engine.water.hot_climate":
     "Very hot temperatures can double water needs. This total uses that factor of 2.",
+  "engine.water.altitude_dry":
+    "More water may be needed at high altitude or in a dry climate. No multiplier is published, so this total is not increased.",
+  "engine.water.rotation":
+    "Self-stored water is replaced every 6 months. That is the period this plan uses where rotation sources disagree.",
   "engine.food.table_edition":
     "Calorie figures use the USDA Food Patterns age-by-sex table. The 2025-2030 Dietary Guidelines do not publish that table. Children under 2 are outside it.",
   "engine.food.under_two":
@@ -48,7 +52,7 @@ const enUS = {
   "engine.food.missing_as_of": "A birth year needs an as-of date before an age can be calculated.",
   "engine.food.invalid_age": "That age cannot be used with the USDA calorie table.",
   "engine.food.age_not_exact":
-    "An exact age needs a birth month and, during that month, the birth day. No calorie figure is filled in until then.",
+    "This calorie figure uses the lower age from the birth year, in case the birthday has not happened yet. Please add a full birth date for exact numbers.",
   "engine.food.missing_sex":
     "The USDA table is split by male and female. No figure is filled in when sex is missing or unspecified.",
   "engine.food.missing_activity":

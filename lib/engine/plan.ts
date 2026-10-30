@@ -2,8 +2,14 @@ import { assumptionsForTier } from "@/lib/assumptions/assumptions";
 import { budgetPathOffers } from "@/lib/engine/adaptations";
 import { resolveAge } from "@/lib/engine/ages";
 import { planFood } from "@/lib/engine/calories";
-import { planFoodSafety, planKit } from "@/lib/engine/checklists";
-import type { AdaptationContext, FoodResult, PlanInput, WaterResult } from "@/lib/engine/types";
+import { planFoodSafety, planKit, planRotation } from "@/lib/engine/checklists";
+import type {
+  AdaptationContext,
+  FoodResult,
+  PlanInput,
+  SupplyItem,
+  WaterResult,
+} from "@/lib/engine/types";
 import { planWater } from "@/lib/engine/water";
 import { buildHazardModule, type HazardModuleResult } from "@/lib/hazards/module";
 import { defaultHazardDependencies, type HazardDependencies } from "@/lib/hazards/defaults";
@@ -25,6 +31,8 @@ export type PreparednessPlan = {
   food: FoodResult;
   kit: KitResult;
   foodSafety: FoodSafetyResult;
+  /** WTR-011 and TIER-ROT. Shown on every plan; they do not change gallon or calorie totals. */
+  rotation: SupplyItem[];
   hazards: HazardModuleResult;
   assumptions: ReturnType<typeof assumptionsForTier>;
   defaultBudgetPath: BudgetPath;
@@ -71,6 +79,7 @@ export async function buildPreparednessPlan(
     food: planFood({ people: input.people, context, asOf: input.asOf }),
     kit: planKit(context),
     foodSafety: planFoodSafety(context),
+    rotation: planRotation(context),
     hazards,
     assumptions: assumptionsForTier(TIER_DAYS[input.tier].days),
     defaultBudgetPath: BUDGET_LEVEL_TO_PATH[input.budgetLevel],
