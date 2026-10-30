@@ -43,6 +43,3 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
-# Generated Census ZCTA-county crosswalk. Rebuild with npm run data:zip-county.
-/data/zip-county-crosswalk.json

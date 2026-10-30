@@ -14,8 +14,15 @@ export type RegionRef = {
   subdivisionName?: string;
 };
 
+/** One county match, highest weight first. `weightKind` is the same for every county in a ZIP. */
+export type RankedCountyRef = {
+  id: string;
+  weight: number;
+  weightKind: "population" | "land_area";
+};
+
 export type PostalResolveResult =
-  | { status: "found"; region: RegionRef }
+  | { status: "found"; region: RegionRef; counties?: readonly RankedCountyRef[] }
   | { status: "invalid_postal_code"; message: LocalMessage }
   | { status: "not_found"; message: LocalMessage }
   | { status: "unavailable"; message: LocalMessage };

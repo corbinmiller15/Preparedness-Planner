@@ -41,6 +41,7 @@ export type PreparednessPlan = {
 
 export async function buildPreparednessPlan(
   input: PlanInput,
+  // Rebuilt on each call. The crosswalk file and FEMA county responses are cached in their modules.
   deps: HazardDependencies = defaultHazardDependencies(),
 ): Promise<PreparednessPlan> {
   const unitSystem = input.unitSystem ?? DEFAULT_UNIT_SYSTEM;

@@ -19,6 +19,8 @@ function input(): PlanInput {
         label: "Alex",
         age: 30,
         birthYear: null,
+        birthMonth: null,
+        birthDay: null,
         sex: "female",
         pregnancyStatus: null,
         isChild: false,

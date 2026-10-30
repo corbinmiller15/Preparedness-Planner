@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import type { ZipCountyCrosswalkRow } from "@/lib/location/us/crosswalk";
+import {
+  createUsZipCountyCrosswalkResolver,
+  type ZipCountyMatch,
+  type ZipCountyWeightKind,
+} from "@/lib/location/us/crosswalk";
+import type { PostalRegionResolver } from "@/lib/location/types";
 
 export const CROSSWALK_FILENAME = "zip-county-crosswalk.json";
 
@@ -9,55 +14,51 @@ export function defaultCrosswalkPath(cwd = process.cwd()): string {
 }
 
 export type ZipCountyCrosswalkFile = {
-  format: 1;
-  source: string;
+  vintage: string;
   sourceUrl: string;
   documentationUrl: string;
-  vintage: string;
+  populationSourceUrl: string;
+  ctSourceUrl: string;
   license: string;
-  attribution: string;
-  ratio: "land_area";
-  rows: ZipCountyCrosswalkRow[];
+  weight: "population_or_land_area";
+  rows: ZipCountyMatch[];
 };
+
+type CachedCrosswalk = {
+  file: ZipCountyCrosswalkFile;
+  resolver: PostalRegionResolver;
+};
+
+const cache = new Map<string, CachedCrosswalk>();
+let fileReads = 0;
+
+export function crosswalkFileReads(): number {
+  return fileReads;
+}
+
+export function clearZipCountyCrosswalkCache(): void {
+  cache.clear();
+}
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
-function coerceRow(item: unknown): ZipCountyCrosswalkRow | null {
-  const parts = Array.isArray(item)
-    ? {
-        zip: item[0],
-        countyFips: item[1],
-        landAreaRatio: item[2],
-        countyName: item[3],
-        stateAbbr: item[4],
-        stateName: item[5],
-      }
-    : item && typeof item === "object"
-      ? (item as Record<string, unknown>)
-      : null;
-  if (!parts) return null;
-  const zip = text(parts.zip);
-  const countyFips = text(parts.countyFips);
-  const countyName = text(parts.countyName);
-  const stateAbbr = text(parts.stateAbbr);
-  const stateName = text(parts.stateName);
-  const landAreaRatio = parts.landAreaRatio;
-  if (!zip || !/^\d{5}$/.test(zip)) return null;
-  if (!countyFips || !/^\d{5}$/.test(countyFips)) return null;
-  if (typeof landAreaRatio !== "number" || !Number.isFinite(landAreaRatio) || landAreaRatio < 0) {
-    return null;
-  }
-  if (!countyName || !stateName || !stateAbbr || !/^[A-Za-z]{2}$/.test(stateAbbr)) return null;
-  return {
-    zip,
-    countyFips,
-    countyName,
-    stateAbbr: stateAbbr.toUpperCase(),
-    stateName,
-    landAreaRatio,
-  };
+function weightKind(value: unknown): ZipCountyWeightKind | null {
+  if (value === "p" || value === "population") return "population";
+  if (value === "l" || value === "land_area") return "land_area";
+  return null;
+}
+
+function matchFromPair(zip: string, pair: unknown): ZipCountyMatch | null {
+  if (!Array.isArray(pair) || pair.length < 3) return null;
+  const countyFips = pair[0];
+  const weight = pair[1];
+  const kind = weightKind(pair[2]);
+  if (typeof countyFips !== "string" || !/^\d{5}$/.test(countyFips)) return null;
+  if (typeof weight !== "number" || !Number.isFinite(weight) || weight <= 0) return null;
+  if (!kind) return null;
+  return { zip, countyFips, weight, weightKind: kind };
 }
 
 export function parseZipCountyCrosswalkJson(raw: string): ZipCountyCrosswalkFile | null {
@@ -69,36 +70,56 @@ export function parseZipCountyCrosswalkJson(raw: string): ZipCountyCrosswalkFile
   }
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
-  if (record.format !== 1 || record.ratio !== "land_area" || !Array.isArray(record.rows)) {
-    return null;
-  }
-  const rows: ZipCountyCrosswalkRow[] = [];
-  for (const item of record.rows) {
-    const row = coerceRow(item);
-    if (row) rows.push(row);
+  const vintage = text(record.vintage);
+  const sourceUrl = text(record.sourceUrl);
+  if (!vintage || !sourceUrl || record.weight !== "population_or_land_area") return null;
+  if (!record.zcta || typeof record.zcta !== "object" || Array.isArray(record.zcta)) return null;
+
+  const rows: ZipCountyMatch[] = [];
+  for (const [zip, pairs] of Object.entries(record.zcta as Record<string, unknown>)) {
+    if (!/^\d{5}$/.test(zip) || !Array.isArray(pairs)) continue;
+    for (const pair of pairs) {
+      const row = matchFromPair(zip, pair);
+      if (row) rows.push(row);
+    }
   }
   if (rows.length === 0) return null;
   return {
-    format: 1,
-    source: text(record.source) ?? "",
-    sourceUrl: text(record.sourceUrl) ?? "",
+    vintage,
+    sourceUrl,
     documentationUrl: text(record.documentationUrl) ?? "",
-    vintage: text(record.vintage) ?? "",
+    populationSourceUrl: text(record.populationSourceUrl) ?? "",
+    ctSourceUrl: text(record.ctSourceUrl) ?? "",
     license: text(record.license) ?? "",
-    attribution: text(record.attribution) ?? "",
-    ratio: "land_area",
+    weight: "population_or_land_area",
     rows,
   };
 }
 
-export function loadZipCountyCrosswalk(
-  filePath = defaultCrosswalkPath(),
-): ZipCountyCrosswalkFile | null {
+function readCached(filePath: string): CachedCrosswalk | null {
+  const hit = cache.get(filePath);
+  if (hit) return hit;
+  fileReads += 1;
   let raw: string;
   try {
     raw = readFileSync(filePath, "utf8");
   } catch {
     return null;
   }
-  return parseZipCountyCrosswalkJson(raw);
+  const file = parseZipCountyCrosswalkJson(raw);
+  if (!file) return null;
+  const cached = { file, resolver: createUsZipCountyCrosswalkResolver(file.rows) };
+  cache.set(filePath, cached);
+  return cached;
+}
+
+/** Reads the committed crosswalk once per path for this process. This does not download anything. */
+export function loadZipCountyCrosswalk(
+  filePath = defaultCrosswalkPath(),
+): ZipCountyCrosswalkFile | null {
+  return readCached(filePath)?.file ?? null;
+}
+
+export function crosswalkResolver(filePath = defaultCrosswalkPath()): PostalRegionResolver | null {
+  return readCached(filePath)?.resolver ?? null;
 }

@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { FEMA_NRI_COUNTIES_QUERY, createFemaNriHazardProvider } from "@/lib/hazards/us/fema-nri";
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  FEMA_NRI_COUNTIES_QUERY,
+  clearFemaNriCache,
+  createFemaNriHazardProvider,
+  setFemaNriCacheLimit,
+} from "@/lib/hazards/us/fema-nri";
 import type { RegionRef } from "@/lib/location/types";
 
 function region(id: string, country = "US"): RegionRef {
@@ -14,6 +19,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("FEMA National Risk Index provider", () => {
+  beforeEach(() => {
+    clearFemaNriCache();
+  });
+
   it("queries one county and returns live ratings", async () => {
     const fetchImpl: typeof fetch = async (url) => {
       const href = String(url);
@@ -138,5 +147,50 @@ describe("FEMA National Risk Index provider", () => {
       reason: "invalid_region",
     });
     expect(calls).toBe(0);
+  });
+
+  it("times out when the response body never finishes", async () => {
+    const fetchImpl: typeof fetch = (_url, init) => {
+      const stream = new ReadableStream({
+        start(controller) {
+          const abort = () => controller.error(new DOMException("aborted", "AbortError"));
+          if (init?.signal?.aborted) abort();
+          else init?.signal?.addEventListener("abort", abort);
+        },
+      });
+      return Promise.resolve(new Response(stream, { status: 200 }));
+    };
+    const result = await createFemaNriHazardProvider({ fetchImpl, timeoutMs: 30 }).ratingsForRegion(
+      region("22071"),
+    );
+    expect(result).toMatchObject({ status: "unavailable", reason: "timeout" });
+  });
+
+  it("reuses a county response for the TTL and evicts the least recently used", async () => {
+    setFemaNriCacheLimit(2);
+    let nowMs = 1_000;
+    let calls = 0;
+    const fetchImpl: typeof fetch = async (url) => {
+      calls += 1;
+      const fips = decodeURIComponent(String(url)).match(/STCOFIPS='(\d{5})'/)?.[1];
+      return jsonResponse({
+        features: [{ attributes: { STCOFIPS: fips, RISK_RATNG: "Very Low", RISK_SCORE: 1 } }],
+      });
+    };
+    const provider = createFemaNriHazardProvider({
+      fetchImpl,
+      cacheTtlMs: 1_000,
+      now: () => nowMs,
+    });
+    await provider.ratingsForRegion(region("22071"));
+    await provider.ratingsForRegion(region("22071"));
+    expect(calls).toBe(1);
+    await provider.ratingsForRegion(region("06037"));
+    await provider.ratingsForRegion(region("36061"));
+    await provider.ratingsForRegion(region("22071"));
+    expect(calls).toBe(4);
+    nowMs += 1_001;
+    await provider.ratingsForRegion(region("36061"));
+    expect(calls).toBe(5);
   });
 });

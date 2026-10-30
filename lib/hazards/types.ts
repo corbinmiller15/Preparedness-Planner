@@ -28,6 +28,8 @@ export type HazardRatingsOk = {
   composite: { rating: HazardRatingLabel; score: number | null; raw: string | null } | null;
   hazards: HazardRating[];
   disclaimer: LocalMessage | null;
+  /** County label from the provider response, when it sent one. */
+  area?: { county: string | null; state: string | null };
 };
 
 export type HazardRatingsResult =

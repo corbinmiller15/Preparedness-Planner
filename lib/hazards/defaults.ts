@@ -1,4 +1,5 @@
 import {
+  hazardProviderCacheTtlMs,
   hazardProviderMode,
   hazardProviderTimeoutMs,
   type HazardProviderMode,
@@ -12,9 +13,9 @@ import type { PostalRegionResolver } from "@/lib/location/types";
 import {
   createMissingZipCountyResolver,
   createUsZipCountyCrosswalkResolver,
-  type ZipCountyCrosswalkRow,
+  type ZipCountyMatch,
 } from "@/lib/location/us/crosswalk";
-import { defaultCrosswalkPath, loadZipCountyCrosswalk } from "@/lib/location/us/crosswalk-file";
+import { crosswalkResolver, defaultCrosswalkPath } from "@/lib/location/us/crosswalk-file";
 import { createUsZipCountyResolver } from "@/lib/location/us/zip-county";
 
 export type HazardDependencies = {
@@ -29,7 +30,8 @@ export type HazardRuntimeConfig = {
   fetchImpl?: typeof fetch;
   endpoint?: string;
   timeoutMs?: number;
-  crosswalkRows?: readonly ZipCountyCrosswalkRow[];
+  cacheTtlMs?: number;
+  crosswalkRows?: readonly ZipCountyMatch[];
   crosswalkPath?: string;
 };
 
@@ -50,19 +52,18 @@ export function defaultHazardDependencies(config: HazardRuntimeConfig = {}): Haz
   const mode = config.provider ?? hazardProviderMode(env);
   if (mode === "fixture") return fixtureDependencies();
 
-  const loaded =
-    config.crosswalkRows ??
-    loadZipCountyCrosswalk(config.crosswalkPath ?? defaultCrosswalkPath())?.rows;
+  const resolver = config.crosswalkRows
+    ? createUsZipCountyCrosswalkResolver(config.crosswalkRows)
+    : (crosswalkResolver(config.crosswalkPath ?? defaultCrosswalkPath()) ??
+      createMissingZipCountyResolver());
   return {
-    resolvers: [
-      loaded ? createUsZipCountyCrosswalkResolver(loaded) : createMissingZipCountyResolver(),
-      createGbPostcodeResolver(),
-    ],
+    resolvers: [resolver, createGbPostcodeResolver()],
     providers: [
       createFemaNriHazardProvider({
         fetchImpl: config.fetchImpl,
         endpoint: config.endpoint,
         timeoutMs: config.timeoutMs ?? hazardProviderTimeoutMs(env),
+        cacheTtlMs: config.cacheTtlMs ?? hazardProviderCacheTtlMs(env),
       }),
       createGbHazardProvider(),
     ],
