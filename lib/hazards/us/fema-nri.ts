@@ -37,6 +37,7 @@ const REASON_MESSAGE: Record<FemaNriUnavailableReason, LocalMessage> = {
 
 /** Insertion order is least-recently-used first. */
 const nriCache = new Map<string, CacheEntry>();
+const inflight = new Map<string, Promise<FemaNriRatingsResult>>();
 let cacheMaxEntries = FEMA_NRI_CACHE_MAX_ENTRIES;
 
 class FemaNriRequestError extends Error {
@@ -51,6 +52,7 @@ class FemaNriRequestError extends Error {
 
 export function clearFemaNriCache(): void {
   nriCache.clear();
+  inflight.clear();
   cacheMaxEntries = FEMA_NRI_CACHE_MAX_ENTRIES;
 }
 
@@ -176,52 +178,63 @@ export function createFemaNriHazardProvider(options?: {
       const cacheKey = `${endpoint}\n${region.id}`;
       const cached = readCache(cacheKey, now());
       if (cached) return cached;
+      const pending = inflight.get(cacheKey);
+      if (pending) return pending;
 
-      const params = new URLSearchParams({
-        where: `STCOFIPS='${region.id}'`,
-        outFields: nriOutFields().join(","),
-        returnGeometry: "false",
-        f: "json",
+      const promise = thisFetch(region, cacheKey);
+      inflight.set(cacheKey, promise);
+      promise.finally(() => {
+        inflight.delete(cacheKey);
       });
-      try {
-        const { response, payload } = await readNri(
-          fetchImpl,
-          `${endpoint}?${params.toString()}`,
-          timeoutMs,
-        );
-        if (!response.ok) return unavailable("http");
-        const body = readQuery(payload);
-        if (!body || body.error || !Array.isArray(body.features)) {
-          return unavailable("invalid_response");
-        }
-        const attributes = body.features[0]?.attributes;
-        if (!attributes) {
-          const missing: FemaNriRatingsResult = { status: "not_found" };
-          writeCache(cacheKey, missing, now(), cacheTtlMs);
-          return missing;
-        }
-        const parsed = parseNriAttributes(attributes);
-        const result: FemaNriRatingsResult = {
-          status: "ok",
-          provenance: "live",
-          providerId: FEMA_NRI_PROVIDER_ID,
-          composite: parsed.composite,
-          hazards: parsed.hazards,
-          disclaimer: { key: "engine.hazard.live_sources" },
-          area: {
-            county: textAttr(attributes.COUNTY),
-            state: textAttr(attributes.STATEABBRV),
-          },
-        };
-        writeCache(cacheKey, result, now(), cacheTtlMs);
-        return result;
-      } catch (error) {
-        if (error instanceof FemaNriRequestError) {
-          if (error.reason === "invalid_json") return unavailable("invalid_response");
-          return unavailable(error.reason);
-        }
-        return unavailable("network");
-      }
+      return promise;
     },
   };
+
+  async function thisFetch(region: RegionRef, cacheKey: string): Promise<FemaNriRatingsResult> {
+    const params = new URLSearchParams({
+      where: `STCOFIPS='${region.id}'`,
+      outFields: nriOutFields().join(","),
+      returnGeometry: "false",
+      f: "json",
+    });
+    try {
+      const { response, payload } = await readNri(
+        fetchImpl,
+        `${endpoint}?${params.toString()}`,
+        timeoutMs,
+      );
+      if (!response.ok) return unavailable("http");
+      const body = readQuery(payload);
+      if (!body || body.error || !Array.isArray(body.features)) {
+        return unavailable("invalid_response");
+      }
+      const attributes = body.features[0]?.attributes;
+      if (!attributes) {
+        const missing: FemaNriRatingsResult = { status: "not_found" };
+        writeCache(cacheKey, missing, now(), cacheTtlMs);
+        return missing;
+      }
+      const parsed = parseNriAttributes(attributes);
+      const result: FemaNriRatingsResult = {
+        status: "ok",
+        provenance: "live",
+        providerId: FEMA_NRI_PROVIDER_ID,
+        composite: parsed.composite,
+        hazards: parsed.hazards,
+        disclaimer: { key: "engine.hazard.live_sources" },
+        area: {
+          county: textAttr(attributes.COUNTY),
+          state: textAttr(attributes.STATEABBRV),
+        },
+      };
+      writeCache(cacheKey, result, now(), cacheTtlMs);
+      return result;
+    } catch (error) {
+      if (error instanceof FemaNriRequestError) {
+        if (error.reason === "invalid_json") return unavailable("invalid_response");
+        return unavailable(error.reason);
+      }
+      return unavailable("network");
+    }
+  }
 }

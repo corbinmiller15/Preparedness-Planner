@@ -17,6 +17,7 @@ export type RegionRef = {
 /** One county match, highest weight first. `weightKind` is the same for every county in a ZIP. */
 export type RankedCountyRef = {
   id: string;
+  name: string;
   weight: number;
   weightKind: "population" | "land_area";
 };

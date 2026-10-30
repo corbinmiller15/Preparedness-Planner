@@ -31,15 +31,16 @@ Calculation text comes from FEMA Ready.gov, CDC, USDA, and Be Ready Utah. Red Cr
 
 ### ZIP to county
 
-The committed file is `data/zip-county-crosswalk.json`. Each ZCTA maps to county FIPS codes and one weight per match. `p` is a population share. `l` is a land-area share. The file header records the 2020 vintage, the 2022 Connecticut vintage, and the source URLs. `npm run build` does not download it. `npm run data:zip-county` rebuilds it from Census and is not part of the build.
+The committed crosswalk is split by the first three ZIP digits under `data/zip-county/`. A lookup reads that one shard, not the national file. `data/zip-county/index.json` records the 2020 vintage, the 2022 Connecticut vintage, and the source URLs. County names live in `data/county-names.json` (Census 2020 county names, plus the nine Connecticut planning regions). `npm run build` does not download any of it. `npm run data:zip-county` rebuilds it and is not part of the build.
 
 - Land: https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/tab20_zcta520_county20_natl.txt
 - Tracts used to allocate population: https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/tab20_zcta520_tract20_natl.txt
 - Population: 2020 Census P.L. 94-171 geographic header, https://www2.census.gov/programs-surveys/decennial/2020/data/01-Redistricting_File--PL_94-171/
 - Documentation: https://www.census.gov/geographies/reference-files/time-series/geo/relationship-files.2020.html
+- County names: https://www2.census.gov/geo/docs/reference/codes2020/national_county2020.txt
 - License: public domain, U.S. government work (17 U.S.C. § 105). Cite the U.S. Census Bureau. There is no API key.
 
-A ZIP in several counties comes back as the full list, highest weight first. The tie break is the lower county FIPS. The weight is the estimated share of 2020 Census population when that total is positive: each tract's population is split across the ZIP by the land area of the overlap, then summed to the county. When that population is missing or zero, the weight is the land-area share (`AREALAND_PART` divided by the ZCTA's land). 57719 returns Pennington County and Meade County, with Pennington first by population. 42223 returns Christian County, Kentucky ahead of Montgomery County, Tennessee, also by population.
+A ZIP in several counties comes back as the full list, highest weight first, with the Census county name on each row. The tie break is the lower county FIPS. The weight is the estimated share of 2020 Census population when that total is positive: each tract's population is split across the ZIP by the land area of the overlap, then summed to the county. When that population is missing or zero, the weight is the land-area share (`AREALAND_PART` divided by the ZCTA's land). 57719 returns Pennington County and Meade County, with Pennington first by population. 42223 returns Christian County, Kentucky ahead of Montgomery County, Tennessee, also by population. Ratings are requested for every county. For each hazard, the plan keeps the highest rating and the county it came from, so a lower-weight county can still set the risk.
 
 Connecticut's retired county codes (09001–09015) are not in the FEMA layer. Those ZIPs use the 2022 planning regions (09110–09190) from the Census Connecticut relationship file https://www2.census.gov/geo/docs/maps-data/data/rel2022/acs22_cousub22_zcta520_st09.txt and the town crosswalk https://www2.census.gov/geo/docs/reference/ct_change/ct_cou_to_cousub_crosswalk.txt. 06511 is the South Central Connecticut Planning Region, 09170. Town population is allocated by the land area of the ZCTA-town overlap.
 
@@ -58,7 +59,7 @@ HUD's USPS ZIP-county crosswalk publishes a residential-address ratio (`RES_RATI
 - Inland flooding is `IFLD_RISKR` and `IFLD_RISKS`, mapped to Flood with coastal flooding.
 - A missing county returns `not_found`. A timeout, a network failure, an HTTP error, or a response that cannot be read returns `unavailable` with a `reason` of `timeout`, `network`, `http`, or `invalid_response`. The timeout covers the response body as well as the headers. Live mode keeps that failure visible.
 - A composite of Insufficient Data, No Rating, or Not Applicable is returned with a null rating and `engine.hazard.insufficient_data`. That is not a low-risk result. Puerto Rico and several territories use this label.
-- Successful county responses are kept in an in-memory LRU for 24 hours (`HAZARD_PROVIDER_CACHE_TTL_MS`, `0` disables it). The crosswalk file is read once per process.
+- Successful county responses are kept in an in-memory LRU for 24 hours (`HAZARD_PROVIDER_CACHE_TTL_MS`, `0` disables it). Concurrent lookups for the same county share one request. Each ZIP prefix shard is read once per process.
 - Optional `HAZARD_PROVIDER_TIMEOUT_MS` defaults to 8000.
 
 To try one ZIP against the live layer:

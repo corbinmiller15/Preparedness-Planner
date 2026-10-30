@@ -1,16 +1,22 @@
 import type { Metadata } from "next";
-import { Newsreader, Public_Sans } from "next/font/google";
+import localFont from "next/font/local";
 import { t } from "@/lib/i18n";
 import "./globals.css";
 
-const publicSans = Public_Sans({
-  subsets: ["latin"],
+const publicSans = localFont({
+  src: [
+    { path: "./fonts/PublicSans-400.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/PublicSans-600.woff2", weight: "600", style: "normal" },
+  ],
   variable: "--font-public-sans",
   display: "swap",
 });
 
-const newsreader = Newsreader({
-  subsets: ["latin"],
+const newsreader = localFont({
+  src: [
+    { path: "./fonts/Newsreader-400.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/Newsreader-600.woff2", weight: "600", style: "normal" },
+  ],
   variable: "--font-newsreader",
   display: "swap",
 });

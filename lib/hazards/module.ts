@@ -16,9 +16,16 @@ export type HazardActionItem = {
   text: string;
 };
 
+export type HazardCountyRef = {
+  id: string;
+  name: string;
+};
+
 export type HazardGroup = {
   hazard: string;
   rating: HazardRatingLabel | null;
+  /** County whose rating won, when several counties were compared. */
+  ratingCounty: HazardCountyRef | null;
   nriKeys: string[];
   factIds: string[];
   actions: HazardActionItem[];
@@ -33,15 +40,18 @@ export type HazardModuleResult =
       message: LocalMessage;
       country: string;
       postalCode: string;
+      region?: RegionRef;
+      counties?: readonly RankedCountyRef[];
     }
   | {
       status: "no_provider" | "no_ratings" | "provider_error";
       message: LocalMessage;
       country: string;
       region: RegionRef;
+      counties?: readonly RankedCountyRef[];
     }
   | {
-      status: "ok";
+      status: "ok" | "partial";
       country: string;
       postalCode: string;
       region: RegionRef;
@@ -55,10 +65,19 @@ export type HazardModuleResult =
         score: number | null;
         raw: string | null;
       } | null;
+      /** County that supplied the highest composite rating. */
+      compositeCounty: HazardCountyRef | null;
       /** Set when the composite label is not a comparable risk level. */
       ratingNote: LocalMessage | null;
       /** Set when the ZIP meets more than one county. */
       areaNote: LocalMessage | null;
+      /** Set when ratings are the highest across more than one county. */
+      highestNote: LocalMessage | null;
+      /** Counties whose own composite had no comparable rating. */
+      insufficientNote: LocalMessage | null;
+      /** Counties that did not return ratings while another county did. */
+      partialNote: LocalMessage | null;
+      missingCounties: readonly HazardCountyRef[];
       groups: HazardGroup[];
       otherRatings: HazardRating[];
       /** US Ready.gov actions are not attached outside the US. */
@@ -74,11 +93,11 @@ function actionsFor(hazard: string): HazardActionItem[] {
   }));
 }
 
-function rollup(ratings: HazardRating[]): { rating: HazardRatingLabel | null; nriKeys: string[] } {
-  if (ratings.length === 0) return { rating: null, nriKeys: [] };
-  let rating = ratings[0]!.rating;
-  for (const item of ratings.slice(1)) rating = higherRating(rating, item.rating);
-  return { rating, nriKeys: ratings.map((item) => item.key) };
+type SourcedRating = HazardRating & { countyId: string; countyName: string };
+
+function preferRating(current: SourcedRating, next: SourcedRating): SourcedRating {
+  const winner = higherRating(current.rating, next.rating);
+  return winner === next.rating && next.rating !== current.rating ? next : current;
 }
 
 export async function buildHazardModule(
@@ -119,45 +138,83 @@ export async function buildHazardModule(
       region: resolved.region,
     };
   }
-  let ratings;
-  try {
-    ratings = await provider.ratingsForRegion(resolved.region);
-  } catch {
-    return {
-      status: "provider_error",
-      message: { key: "engine.hazard.provider_error" },
-      country,
-      region: resolved.region,
-    };
-  }
-  if (ratings.status === "unavailable") {
-    return {
-      status: "unavailable",
-      message: ratings.message,
-      country,
-      postalCode: input.postalCode,
-    };
-  }
-  if (ratings.status === "not_found") {
+  const targets: HazardCountyRef[] =
+    resolved.counties && resolved.counties.length > 0
+      ? resolved.counties.map((county) => ({ id: county.id, name: county.name }))
+      : [{ id: resolved.region.id, name: resolved.region.name }];
+  const fetched = await Promise.all(
+    targets.map(async (county) => {
+      try {
+        const ratings = await provider.ratingsForRegion({
+          ...resolved.region,
+          id: county.id,
+          name: county.name,
+        });
+        return { county, ratings, thrown: false as const };
+      } catch {
+        return { county, ratings: null, thrown: true as const };
+      }
+    }),
+  );
+  const ready = fetched.filter(
+    (
+      item,
+    ): item is {
+      county: HazardCountyRef;
+      ratings: Extract<NonNullable<(typeof fetched)[number]["ratings"]>, { status: "ok" }>;
+      thrown: false;
+    } => item.ratings?.status === "ok",
+  );
+  const located = resolved.counties ? { counties: resolved.counties } : {};
+  if (ready.length === 0) {
+    const primary = fetched[0];
+    if (!primary || primary.thrown || !primary.ratings) {
+      return {
+        status: "provider_error",
+        message: { key: "engine.hazard.provider_error" },
+        country,
+        region: resolved.region,
+        ...located,
+      };
+    }
+    if (primary.ratings.status === "unavailable") {
+      return {
+        status: "unavailable",
+        message: primary.ratings.message,
+        country,
+        postalCode: input.postalCode,
+        region: resolved.region,
+        ...located,
+      };
+    }
     return {
       status: "no_ratings",
       message: { key: "engine.hazard.no_ratings" },
       country,
       region: resolved.region,
+      ...located,
     };
   }
 
-  const byHazard = new Map<string, HazardRating[]>();
-  const otherRatings: HazardRating[] = [];
-  for (const hazard of ratings.hazards) {
-    const name = NRI_KEY_TO_HAZARD[hazard.key];
-    if (!name) {
-      otherRatings.push(hazard);
-      continue;
+  const byHazard = new Map<string, SourcedRating[]>();
+  const otherByKey = new Map<string, SourcedRating>();
+  for (const item of ready) {
+    for (const hazard of item.ratings.hazards) {
+      const sourced: SourcedRating = {
+        ...hazard,
+        countyId: item.county.id,
+        countyName: item.county.name,
+      };
+      const name = NRI_KEY_TO_HAZARD[hazard.key];
+      if (!name) {
+        const current = otherByKey.get(hazard.key);
+        otherByKey.set(hazard.key, current ? preferRating(current, sourced) : sourced);
+        continue;
+      }
+      const list = byHazard.get(name) ?? [];
+      list.push(sourced);
+      byHazard.set(name, list);
     }
-    const list = byHazard.get(name) ?? [];
-    list.push(hazard);
-    byHazard.set(name, list);
   }
 
   const actionsIncluded = country === "US";
@@ -169,6 +226,7 @@ export async function buildHazardModule(
         groups.push({
           hazard: name,
           rating: null,
+          ratingCounty: null,
           nriKeys: [],
           factIds: actions.map((action) => action.factId),
           actions,
@@ -176,12 +234,23 @@ export async function buildHazardModule(
         });
         continue;
       }
-      const rolled = rollup(byHazard.get(name) ?? []);
+      const sourced = byHazard.get(name) ?? [];
+      const best = sourced.reduce<SourcedRating | null>(
+        (current, item) => (current ? preferRating(current, item) : item),
+        null,
+      );
       const actions = actionsFor(name);
       groups.push({
         hazard: name,
-        rating: rolled.rating,
-        nriKeys: rolled.nriKeys,
+        rating: best?.rating ?? null,
+        ratingCounty: best ? { id: best.countyId, name: best.countyName } : null,
+        nriKeys: best
+          ? [
+              ...new Set(
+                sourced.filter((item) => item.countyId === best.countyId).map((item) => item.key),
+              ),
+            ]
+          : [],
         factIds: actions.map((action) => action.factId),
         actions,
         note: null,
@@ -189,25 +258,74 @@ export async function buildHazardModule(
     }
   }
 
-  const comparable = presentComposite(ratings.composite);
+  let bestComposite: {
+    rating: HazardRatingLabel;
+    score: number | null;
+    raw: string | null;
+  } | null = null;
+  let compositeCounty: HazardCountyRef | null = null;
+  for (const item of ready) {
+    const composite = item.ratings.composite;
+    if (!composite) continue;
+    if (
+      !bestComposite ||
+      (higherRating(bestComposite.rating, composite.rating) === composite.rating &&
+        composite.rating !== bestComposite.rating)
+    ) {
+      bestComposite = composite;
+      compositeCounty = item.county;
+    }
+  }
+  const comparable = presentComposite(bestComposite);
+  const lead = ready[0]!.ratings;
   const region = { ...resolved.region };
-  if (ratings.area?.county) region.name = ratings.area.county;
-  if (ratings.area?.state) region.subdivisionCode = ratings.area.state;
+  if (!region.subdivisionCode && lead.area?.state) region.subdivisionCode = lead.area.state;
+  const missingCounties = fetched
+    .filter((item) => item.ratings?.status !== "ok")
+    .map((item) => item.county);
+  const insufficientCounties = ready
+    .filter((item) => {
+      const rating = item.ratings.composite?.rating;
+      return rating !== undefined && NON_COMPARABLE.has(rating);
+    })
+    .map((item) => item.county);
+  const comparableWinner = bestComposite !== null && !NON_COMPARABLE.has(bestComposite.rating);
+  const countyCount = resolved.counties?.length ?? (targets.length > 1 ? targets.length : 0);
 
   return {
-    status: "ok",
+    status: missingCounties.length > 0 ? "partial" : "ok",
     country,
     postalCode: input.postalCode,
     region,
     ...(resolved.counties ? { counties: resolved.counties } : {}),
-    providerId: ratings.providerId,
-    provenance: ratings.provenance,
-    disclaimer: ratings.disclaimer,
+    providerId: lead.providerId,
+    provenance: lead.provenance,
+    disclaimer: lead.disclaimer,
     composite: comparable.composite,
+    compositeCounty,
     ratingNote: comparable.ratingNote,
     areaNote: areaNoteFor(resolved.counties),
+    highestNote:
+      countyCount > 1
+        ? { key: "engine.hazard.highest_across_counties", params: { count: countyCount } }
+        : null,
+    insufficientNote:
+      comparableWinner && insufficientCounties.length > 0
+        ? {
+            key: "engine.hazard.county_insufficient",
+            params: { counties: insufficientCounties.map((county) => county.name).join(", ") },
+          }
+        : null,
+    partialNote:
+      missingCounties.length > 0
+        ? {
+            key: "engine.hazard.partial_counties",
+            params: { counties: missingCounties.map((county) => county.name).join(", ") },
+          }
+        : null,
+    missingCounties,
     groups,
-    otherRatings,
+    otherRatings: [...otherByKey.values()],
     actionsIncluded,
   };
 }

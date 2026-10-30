@@ -199,4 +199,27 @@ describe("FEMA National Risk Index provider", () => {
     await provider.ratingsForRegion(region("36061"));
     expect(calls).toBe(5);
   });
+
+  it("shares one in-flight request for the same county", async () => {
+    let calls = 0;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchImpl: typeof fetch = async () => {
+      calls += 1;
+      await gate;
+      return jsonResponse({
+        features: [{ attributes: { STCOFIPS: "22071", RISK_RATNG: "Very Low", RISK_SCORE: 1 } }],
+      });
+    };
+    const provider = createFemaNriHazardProvider({ fetchImpl, cacheTtlMs: 60_000 });
+    const first = provider.ratingsForRegion(region("22071"));
+    const second = provider.ratingsForRegion(region("22071"));
+    expect(calls).toBe(1);
+    release();
+    const [left, right] = await Promise.all([first, second]);
+    expect(left).toEqual(right);
+    expect(calls).toBe(1);
+  });
 });
