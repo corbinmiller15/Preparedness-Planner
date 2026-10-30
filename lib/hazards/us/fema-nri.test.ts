@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { nriOutFields } from "@/lib/hazards/nri";
 import {
   FEMA_NRI_COUNTIES_QUERY,
   clearFemaNriCache,
@@ -29,6 +30,11 @@ describe("FEMA National Risk Index provider", () => {
       expect(href.startsWith(FEMA_NRI_COUNTIES_QUERY)).toBe(true);
       expect(href).toContain("STCOFIPS%3D%2722071%27");
       expect(href).toContain("returnGeometry=false");
+      const outFields = new URL(href).searchParams.get("outFields")?.split(",") ?? [];
+      expect(outFields).toEqual([...nriOutFields()]);
+      expect(outFields).toContain("IFLD_RISKR");
+      expect(outFields).toContain("IFLD_RISKS");
+      expect(outFields.some((field) => field.startsWith("RFLD"))).toBe(false);
       return jsonResponse({
         features: [
           {

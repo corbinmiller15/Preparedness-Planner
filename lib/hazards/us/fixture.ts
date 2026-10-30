@@ -32,7 +32,7 @@ export const US_NRI_FIXTURE: readonly UsNriFixtureRow[] = [
     {
       HRCN: "Very High",
       CFLD: "Very High",
-      RFLD: "Relatively Moderate",
+      IFLD: "Relatively Moderate",
       TRND: "Relatively High",
       WFIR: "Very Low",
       ERQK: "Relatively Low",
@@ -50,7 +50,7 @@ export const US_NRI_FIXTURE: readonly UsNriFixtureRow[] = [
       WNTW: "Relatively High",
       HWAV: "Relatively Moderate",
       HRCN: "Very Low",
-      RFLD: "Relatively Low",
+      IFLD: "Relatively Low",
     },
     "Relatively Moderate",
   ),
@@ -69,7 +69,7 @@ export const US_NRI_FIXTURE: readonly UsNriFixtureRow[] = [
     {
       HRCN: "Very High",
       CFLD: "Relatively High",
-      RFLD: "Relatively High",
+      IFLD: "Relatively High",
       HWAV: "Relatively High",
     },
     "Very High",

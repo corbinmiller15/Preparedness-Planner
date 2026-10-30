@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
@@ -7,5 +7,6 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["lib/**/*.test.ts", "supabase/**/*.test.ts"],
+    exclude: [...configDefaults.exclude, "**/*.contract.test.ts"],
   },
 });
