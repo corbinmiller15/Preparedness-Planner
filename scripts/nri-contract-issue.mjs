@@ -6,8 +6,11 @@ export const FAILURE_TITLE = "FEMA NRI contract test failed";
 export const FAILURE_LABEL = "nri-contract";
 /** Repeat comments on an open outage at most once a week. */
 export const FAILURE_COMMENT_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
-/** Present in the issue body while the workflow state is disabled_inactivity. */
-export const INACTIVITY_MARKER = "disabled_inactivity";
+/**
+ * Marks a comment or opening body this workflow posted.
+ * The weekly clock uses only these, not other people's comments.
+ */
+export const REMINDER_MARKER = "<!-- nri-contract-reminder -->";
 
 export function labelNames(issue) {
   const labels = Array.isArray(issue?.labels) ? issue.labels : [];
@@ -32,9 +35,27 @@ function isOpen(issue) {
   return String(issue.state).toLowerCase() === "open";
 }
 
-function commentDue(issue, nowMs, intervalMs) {
-  const updated = Date.parse(issue.updatedAt ?? "");
-  return !Number.isFinite(updated) || nowMs - updated >= intervalMs;
+/** Newest reminder this workflow posted, from its own comments or opening body. */
+export function lastReminderAt(issue) {
+  const times = [];
+  if (String(issue?.body ?? "").includes(REMINDER_MARKER)) {
+    const created = Date.parse(issue.createdAt ?? "");
+    if (Number.isFinite(created)) times.push(created);
+  }
+  const comments = Array.isArray(issue?.comments) ? issue.comments : [];
+  for (const comment of comments) {
+    if (!String(comment?.body ?? "").includes(REMINDER_MARKER)) continue;
+    const created = Date.parse(comment.createdAt ?? "");
+    if (Number.isFinite(created)) times.push(created);
+  }
+  if (times.length === 0) return null;
+  return Math.max(...times);
+}
+
+function reminderDue(issue, nowMs) {
+  const last = lastReminderAt(issue);
+  if (last === null) return true;
+  return nowMs - last >= FAILURE_COMMENT_INTERVAL_MS;
 }
 
 export function failurePlan(outcome, issues, nowMs = Date.now()) {
@@ -46,12 +67,13 @@ export function failurePlan(outcome, issues, nowMs = Date.now()) {
   if (outcome !== "failure" && outcome !== "disabled_inactivity") return { action: "none" };
   if (!existing) return { action: "create" };
   if (!isOpen(existing)) return { action: "reopen", number: existing.number };
-  const marked = String(existing.body ?? "").includes(INACTIVITY_MARKER);
-  if (outcome === "disabled_inactivity" && !marked) {
-    return { action: "comment", number: existing.number };
-  }
-  if (!commentDue(existing, nowMs, FAILURE_COMMENT_INTERVAL_MS)) return { action: "none" };
+  if (!reminderDue(existing, nowMs)) return { action: "none" };
   return { action: "comment", number: existing.number };
+}
+
+/** Label edit only. Never replaces the issue body. */
+export function issueLabelArgs(number) {
+  return ["issue", "edit", String(number), "--add-label", FAILURE_LABEL];
 }
 
 export function failureBody(runUrl) {
@@ -62,11 +84,17 @@ export function failureBody(runUrl) {
     "Repeat comments during an outage are limited to once a week.",
     "",
     runUrl,
+    REMINDER_MARKER,
   ].join("\n");
 }
 
 export function failureAgainBody(runUrl) {
-  return ["The FEMA National Risk Index contract workflow failed again.", "", runUrl].join("\n");
+  return [
+    "The FEMA National Risk Index contract workflow failed again.",
+    "",
+    runUrl,
+    REMINDER_MARKER,
+  ].join("\n");
 }
 
 export function recoveryBody(runUrl) {
@@ -84,6 +112,7 @@ export function inactivityBody(runUrl) {
     "Re-enable the workflow in the Actions tab. While the schedule is still enabled, each run calls `gh workflow enable`. That call is reported to reset the timer, but GitHub does not document it. A workflow already disabled for inactivity cannot run the call.",
     "",
     runUrl,
+    REMINDER_MARKER,
   ].join("\n");
 }
 
@@ -102,7 +131,7 @@ function listIssues(title, label) {
     "--search",
     `in:title "${title}"`,
     "--json",
-    "number,title,state,updatedAt,labels,body",
+    "number,title,state,createdAt,labels,body",
   ]);
   const byTitle = JSON.parse(raw);
   let byLabel = [];
@@ -118,7 +147,7 @@ function listIssues(title, label) {
         "--limit",
         "20",
         "--json",
-        "number,title,state,updatedAt,labels,body",
+        "number,title,state,createdAt,labels,body",
       ]),
     );
   } catch {
@@ -129,6 +158,25 @@ function listIssues(title, label) {
     if (issue && typeof issue.number === "number") merged.set(issue.number, issue);
   }
   return [...merged.values()];
+}
+
+function listComments(number) {
+  const raw = gh([
+    "api",
+    "--paginate",
+    `repos/{owner}/{repo}/issues/${number}/comments`,
+    "--jq",
+    ".[] | {createdAt: .created_at, body: .body}",
+  ]);
+  const text = String(raw).trim();
+  if (!text) return [];
+  return text.split("\n").map((line) => JSON.parse(line));
+}
+
+function attachReminders(issues) {
+  const selected = selectIssue(issues, FAILURE_TITLE, FAILURE_LABEL);
+  if (selected) selected.comments = listComments(selected.number);
+  return issues;
 }
 
 function ensureLabel(name, color, description) {
@@ -148,7 +196,7 @@ function messageBody(outcome, runUrl, action) {
 }
 
 function applyOutcome(outcome, runUrl) {
-  const plan = failurePlan(outcome, listIssues(FAILURE_TITLE, FAILURE_LABEL));
+  const plan = failurePlan(outcome, attachReminders(listIssues(FAILURE_TITLE, FAILURE_LABEL)));
   const body = messageBody(outcome, runUrl, plan.action);
   if (plan.action === "create") {
     gh(["issue", "create", "--title", FAILURE_TITLE, "--label", FAILURE_LABEL, "--body", body]);
@@ -156,17 +204,13 @@ function applyOutcome(outcome, runUrl) {
   }
   if (plan.action === "comment" && plan.number) {
     gh(["issue", "comment", String(plan.number), "--body", body]);
-    const edit = ["issue", "edit", String(plan.number), "--add-label", FAILURE_LABEL];
-    if (outcome === "disabled_inactivity") edit.push("--body", body);
-    gh(edit);
+    gh(issueLabelArgs(plan.number));
     return;
   }
   if (plan.action === "reopen" && plan.number) {
     gh(["issue", "reopen", String(plan.number)]);
     gh(["issue", "comment", String(plan.number), "--body", body]);
-    const edit = ["issue", "edit", String(plan.number), "--add-label", FAILURE_LABEL];
-    if (outcome === "disabled_inactivity") edit.push("--body", body);
-    gh(edit);
+    gh(issueLabelArgs(plan.number));
     return;
   }
   if (plan.action === "close" && plan.number) {

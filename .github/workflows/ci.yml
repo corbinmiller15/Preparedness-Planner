@@ -28,12 +28,15 @@ jobs:
           CI: true
 
   # The contract schedule cannot report disabled_inactivity itself: a disabled
-  # workflow does not run. This job still runs on push and pull request.
+  # workflow does not run. Fork pull requests use a read-only token, so they
+  # warn instead of calling the API. This job shares the nri-contract
+  # concurrency group with the contract workflow so both cannot create the issue.
   contract-schedule:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
     concurrency:
-      group: nri-contract-inactivity
+      group: nri-contract
       cancel-in-progress: false
     permissions:
       contents: read
@@ -48,8 +51,21 @@ jobs:
           CONTRACT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          state="$(gh workflow view nri-contract.yml --json state --jq .state 2>/dev/null || true)"
-          echo "Contract workflow state: ${state:-unknown}"
+          state="$(gh api "repos/${GH_REPO}/actions/workflows/nri-contract.yml" --jq .state)"
+          echo "Contract workflow state: ${state}"
+          if [ -z "$state" ]; then
+            echo "Workflow state was empty" >&2
+            exit 1
+          fi
           if [ "$state" = "disabled_inactivity" ]; then
             CONTRACT_OUTCOME=disabled_inactivity node scripts/nri-contract-issue.mjs
           fi
+
+  contract-schedule-fork:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Fork pull requests cannot file the schedule alert
+        run: echo "::warning::Skipping the FEMA contract schedule check on a fork pull request. The token cannot open issues."

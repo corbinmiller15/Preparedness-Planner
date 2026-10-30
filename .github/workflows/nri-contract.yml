@@ -16,6 +16,7 @@ on:
 permissions:
   contents: read
 
+# Shared with CI's contract-schedule job so the two cannot both create the issue.
 concurrency:
   group: nri-contract
   cancel-in-progress: false

@@ -1,14 +1,20 @@
 export const FAILURE_TITLE: string;
 export const FAILURE_LABEL: string;
 export const FAILURE_COMMENT_INTERVAL_MS: number;
-export const INACTIVITY_MARKER: string;
+export const REMINDER_MARKER: string;
+
+export type ContractComment = {
+  body?: string;
+  createdAt?: string;
+};
 
 export type ContractIssue = {
   number: number;
   title: string;
   state: string;
-  updatedAt?: string;
+  createdAt?: string;
   body?: string;
+  comments?: ContractComment[];
   labels?: Array<string | { name?: string }>;
 };
 
@@ -22,6 +28,8 @@ export function selectIssue(
   label: string,
 ): ContractIssue | null;
 
+export function lastReminderAt(issue: ContractIssue): number | null;
+
 export function failurePlan(
   outcome: ContractOutcome,
   issues: readonly ContractIssue[],
@@ -30,3 +38,11 @@ export function failurePlan(
   | { action: "create" }
   | { action: "comment" | "reopen" | "close"; number: number }
   | { action: "none" };
+
+export function issueLabelArgs(number: number): string[];
+
+export function failureBody(runUrl: string): string;
+
+export function failureAgainBody(runUrl: string): string;
+
+export function inactivityBody(runUrl: string): string;
