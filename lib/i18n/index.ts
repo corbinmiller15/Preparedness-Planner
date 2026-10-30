@@ -81,6 +81,14 @@ const enUS = {
     "These ratings are sample rows for development. They are not FEMA National Risk Index scores.",
   "engine.hazard.live_sources":
     "Ratings come from the FEMA National Risk Index. Action text is the Ready.gov paraphrase stored with each fact id.",
+  "engine.hazard.nri_timeout": "The FEMA National Risk Index request timed out.",
+  "engine.hazard.nri_network": "The FEMA National Risk Index could not be reached.",
+  "engine.hazard.nri_http": "The FEMA National Risk Index returned an error.",
+  "engine.hazard.nri_invalid_response": "The FEMA National Risk Index response could not be read.",
+  "engine.hazard.nri_invalid_region":
+    "National Risk Index ratings need a 5-digit county FIPS code.",
+  "engine.hazard.crosswalk_missing":
+    "The ZIP to county crosswalk file is not loaded. Ratings for this postal code are unavailable.",
   "engine.hazard.power_outage":
     "Power outage is not a National Risk Index hazard. The actions have no county rating.",
   "engine.hazard.gb_unavailable":

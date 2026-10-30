@@ -9,6 +9,7 @@ export type UsZipCountyRow = {
 /**
  * Sample ZIP to county rows for development.
  * A ZIP can span counties; each row is one county, not a Census relationship-file weight.
+ * The generated Census crosswalk is used only when HAZARD_PROVIDER=fema_nri.
  */
 export const US_ZIP_COUNTY_FIXTURE: readonly UsZipCountyRow[] = [
   {
