@@ -82,33 +82,34 @@ export function parseZipShardJson(raw: string): ZipCountyMatch[] {
   return rows;
 }
 
+function rememberShard(filePath: string, result: ShardLoad): ShardLoad {
+  if (result.status === "invalid") shards.delete(filePath);
+  else shards.set(filePath, result);
+  return result;
+}
+
 function readZipShard(prefix: string, dir: string): ShardLoad {
   if (!/^\d{3}$/.test(prefix)) return { status: "missing" };
   const filePath = path.join(dir, `${prefix}.json`);
   const hit = shards.get(filePath);
-  if (hit) return hit;
+  if (hit?.status === "invalid") shards.delete(filePath);
+  else if (hit) return hit;
   shardReads += 1;
   let raw: string;
   try {
     raw = readFileSync(filePath, "utf8");
   } catch (error) {
     const missing = (error as NodeJS.ErrnoException).code === "ENOENT";
-    const result: ShardLoad = { status: missing ? "missing" : "invalid" };
-    shards.set(filePath, result);
-    return result;
+    return rememberShard(filePath, { status: missing ? "missing" : "invalid" });
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw) as unknown;
   } catch {
-    const result: ShardLoad = { status: "invalid" };
-    shards.set(filePath, result);
-    return result;
+    return rememberShard(filePath, { status: "invalid" });
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    const result: ShardLoad = { status: "invalid" };
-    shards.set(filePath, result);
-    return result;
+    return rememberShard(filePath, { status: "invalid" });
   }
   const rows: ZipCountyMatch[] = [];
   for (const [zip, pairs] of Object.entries(parsed as Record<string, unknown>)) {
@@ -118,12 +119,14 @@ function readZipShard(prefix: string, dir: string): ShardLoad {
       if (row) rows.push(row);
     }
   }
-  const result: ShardLoad = { status: "ok", rows };
-  shards.set(filePath, result);
-  return result;
+  return rememberShard(filePath, { status: "ok", rows });
 }
 
-/** Loads one 3-digit ZIP prefix. A missing shard is an empty list. A corrupt file throws. */
+/**
+ * Loads one 3-digit ZIP prefix.
+ * A missing shard is an empty list and stays cached.
+ * A corrupt file throws and is not cached.
+ */
 export function loadZipShard(prefix: string, dir = defaultCrosswalkDir()): ZipCountyMatch[] {
   const loaded = readZipShard(prefix, dir);
   if (loaded.status === "invalid") {

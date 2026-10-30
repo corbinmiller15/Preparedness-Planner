@@ -2,13 +2,43 @@ name: FEMA NRI contract
 
 on:
   schedule:
+    # Daily at 14:00 UTC.
     - cron: "0 14 * * *"
   workflow_dispatch:
 
+# This repository is public, so GitHub may disable this schedule after 60 days.
+# GitHub does not define which events count as activity. The enable job calls
+# `gh workflow enable` on every run. That call is reported to reset the timer,
+# but the behavior is undocumented and best-effort. A workflow already disabled
+# for inactivity never starts, so this job cannot revive itself. CI alerts when
+# the state is disabled_inactivity.
+#
+# GitHub keeps one running run and one pending run per concurrency group, and a
+# newer pending run replaces the older one even when cancel-in-progress is
+# false. The nri-contract-issue group is only on the record job, shared with
+# CI's issue job, so that replacement cannot drop this test.
+
+permissions:
+  contents: read
+
 jobs:
+  enable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Re-enable this workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow enable nri-contract.yml
+
   contract:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,3 +47,24 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:contract
+
+  record:
+    needs: contract
+    if: always() && (needs.contract.result == 'success' || needs.contract.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: nri-contract-issue
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record the contract result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CONTRACT_OUTCOME: ${{ needs.contract.result }}
+          CONTRACT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/nri-contract-issue.mjs

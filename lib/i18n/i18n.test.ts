@@ -10,4 +10,16 @@ describe("locale strings", () => {
     expect(t("units.L.one", "en-GB")).toBe("litre");
     expect(translate({ key: "home.title" }, "en-GB")).toBe("Northroom");
   });
+
+  it("describes a county or equivalent area in the hazard notes", () => {
+    const phrase = "county or equivalent area";
+    expect(t("engine.hazard.insufficient_data")).toContain(phrase);
+    expect(t("engine.hazard.land_area_weight")).toContain(phrase);
+    expect(t("engine.hazard.population_weight")).toContain(phrase);
+    expect(t("engine.hazard.power_outage")).toContain(phrase);
+    expect(t("engine.hazard.nri_invalid_region")).toContain(phrase);
+    expect(t("engine.hazard.highest_across_counties", "en-US", { count: 2 })).toBe(
+      "Each rating is the highest across the 2 counties or equivalent areas this ZIP touches. The county or equivalent area is shown with the rating.",
+    );
+  });
 });

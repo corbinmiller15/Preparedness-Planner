@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -23,3 +26,62 @@ jobs:
       - run: npm run test:e2e
         env:
           CI: true
+
+  # The contract schedule cannot report disabled_inactivity itself: a disabled
+  # workflow does not run. Fork pull requests use a read-only token, so they
+  # warn instead of calling the API. Reading the state stays outside the
+  # issue concurrency group so a queued issue write cannot cancel this check.
+  contract-schedule:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      state: ${{ steps.read.outputs.state }}
+    steps:
+      - name: Read the contract workflow state
+        id: read
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          state="$(gh api "repos/${GH_REPO}/actions/workflows/nri-contract.yml" --jq .state)"
+          echo "Contract workflow state: ${state}"
+          if [ -z "$state" ]; then
+            echo "Workflow state was empty" >&2
+            exit 1
+          fi
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+
+  contract-issue:
+    needs: contract-schedule
+    if: needs.contract-schedule.result == 'success' && needs.contract-schedule.outputs.state == 'disabled_inactivity'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: nri-contract-issue
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Alert that the contract schedule was disabled for inactivity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CONTRACT_OUTCOME: disabled_inactivity
+          CONTRACT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/nri-contract-issue.mjs
+
+  contract-schedule-fork:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Fork pull requests cannot file the schedule alert
+        run: echo "::warning::Skipping the FEMA contract schedule check on a fork pull request. The token cannot open issues."

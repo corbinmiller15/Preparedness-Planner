@@ -238,7 +238,36 @@ describe("live hazard plans", () => {
       key: "engine.hazard.partial_counties",
       params: { counties: "Montgomery County" },
     });
+    expect(plan.hazards.highestNote).toBeNull();
     expect(plan.hazards.region.name).toBe("Christian County");
+  });
+
+  it("leaves a failed county out of the highest-across count", async () => {
+    clearFemaNriCache();
+    const plan = await buildPreparednessPlan(
+      input("42223"),
+      defaultHazardDependencies({
+        provider: "fema_nri",
+        cacheTtlMs: 0,
+        crosswalkRows: [
+          { zip: "42223", countyFips: "21047", weight: 0.5, weightKind: "population" },
+          { zip: "42223", countyFips: "47125", weight: 0.3, weightKind: "population" },
+          { zip: "42223", countyFips: "21111", weight: 0.2, weightKind: "population" },
+        ],
+        fetchImpl: async (url) => {
+          const fips = decodeURIComponent(String(url)).match(/STCOFIPS='(\d{5})'/)?.[1] ?? "";
+          if (fips === "21111") return new Response("nope", { status: 500 });
+          return ratingResponse(fips, "Relatively Low", 40);
+        },
+      }),
+    );
+    expect(plan.hazards.status).toBe("partial");
+    if (plan.hazards.status !== "partial") return;
+    expect(plan.hazards.missingCounties).toEqual([{ id: "21111", name: "21111" }]);
+    expect(plan.hazards.highestNote).toEqual({
+      key: "engine.hazard.highest_across_counties",
+      params: { count: 2 },
+    });
   });
 
   it("notes a county that has insufficient data while another county has a rating", async () => {
@@ -323,5 +352,15 @@ describe("live hazard plans", () => {
     const layout = readFileSync("app/layout.tsx", "utf8");
     expect(layout).not.toContain("next/font/google");
     expect(layout).toContain("next/font/local");
+    expect(
+      readFileSync("app/fonts/OFL-PublicSans.txt", "utf8").startsWith(
+        "Copyright 2015 The Public Sans Project Authors (https://github.com/uswds/public-sans)\n",
+      ),
+    ).toBe(true);
+    expect(
+      readFileSync("app/fonts/OFL-Newsreader.txt", "utf8").startsWith(
+        "Copyright 2020 The Newsreader Project Authors (http://github.com/productiontype/Newsreader)\n",
+      ),
+    ).toBe(true);
   });
 });

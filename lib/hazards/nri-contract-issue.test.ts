@@ -1,0 +1,265 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import {
+  COMMENT_LOOKBACK_MS,
+  DISABLED_MARKER,
+  FAILURE_COMMENT_INTERVAL_MS,
+  FAILURE_LABEL,
+  FAILURE_TITLE,
+  REMINDER_MARKER,
+  collectCommentPages,
+  commentPagePath,
+  failureAgainBody,
+  failureBody,
+  failurePlan,
+  inactivityBody,
+  issueLabelArgs,
+  parseCommentList,
+  selectIssue,
+} from "../../scripts/nri-contract-issue.mjs";
+
+const now = Date.parse("2026-10-30T00:00:00.000Z");
+
+function issue(
+  number: number,
+  title: string,
+  label: string,
+  state = "OPEN",
+  createdAt = "2026-10-01T00:00:00.000Z",
+  body = "",
+  comments: { body?: string; createdAt?: string }[] = [],
+) {
+  return {
+    number,
+    title,
+    state,
+    createdAt,
+    updatedAt: "2026-10-30T00:00:00.000Z",
+    body,
+    comments,
+    labels: [{ name: label }],
+  };
+}
+
+describe("FEMA contract issue", () => {
+  it("opens one failure issue and later comments, reopens, or closes that issue", () => {
+    expect(failurePlan("failure", [], now)).toEqual({ action: "create" });
+    const open = issue(12, FAILURE_TITLE, FAILURE_LABEL);
+    expect(failurePlan("failure", [open], now)).toEqual({ action: "comment", number: 12 });
+    expect(failurePlan("success", [open], now)).toEqual({ action: "close", number: 12 });
+    expect(failurePlan("failure", [{ ...open, state: "CLOSED" }], now)).toEqual({
+      action: "reopen",
+      number: 12,
+    });
+    expect(failurePlan("success", [{ ...open, state: "CLOSED" }], now)).toEqual({
+      action: "none",
+    });
+    expect(failurePlan("success", [], now)).toEqual({ action: "none" });
+  });
+
+  it("dedupes by title and label and keeps the open issue", () => {
+    const chosen = selectIssue(
+      [
+        issue(4, FAILURE_TITLE, "other"),
+        issue(9, FAILURE_TITLE, FAILURE_LABEL, "CLOSED"),
+        issue(8, FAILURE_TITLE, FAILURE_LABEL, "OPEN"),
+        issue(3, "Something else", FAILURE_LABEL),
+      ],
+      FAILURE_TITLE,
+      FAILURE_LABEL,
+    );
+    expect(chosen?.number).toBe(8);
+  });
+
+  it("waits a week after this workflow's reminder, not after other comments", () => {
+    const talked = issue(12, FAILURE_TITLE, FAILURE_LABEL, "OPEN", "2026-10-01T00:00:00.000Z", "", [
+      { body: "I am looking at this", createdAt: "2026-10-29T00:00:00.000Z" },
+    ]);
+    expect(failurePlan("failure", [talked], now)).toEqual({ action: "comment", number: 12 });
+
+    const reminded = issue(
+      12,
+      FAILURE_TITLE,
+      FAILURE_LABEL,
+      "OPEN",
+      "2026-10-01T00:00:00.000Z",
+      failureBody("https://example.test/1"),
+      [
+        { body: "still looking", createdAt: "2026-10-29T12:00:00.000Z" },
+        { body: failureAgainBody("https://example.test/2"), createdAt: "2026-10-28T00:00:00.000Z" },
+      ],
+    );
+    expect(now - Date.parse("2026-10-28T00:00:00.000Z")).toBeLessThan(FAILURE_COMMENT_INTERVAL_MS);
+    expect(failurePlan("failure", [reminded], now)).toEqual({ action: "none" });
+    expect(failurePlan("disabled_inactivity", [reminded], now)).toEqual({
+      action: "comment",
+      number: 12,
+    });
+
+    const stale = issue(
+      12,
+      FAILURE_TITLE,
+      FAILURE_LABEL,
+      "OPEN",
+      "2026-09-01T00:00:00.000Z",
+      failureBody("https://example.test/1"),
+      [
+        { body: failureAgainBody("https://example.test/2"), createdAt: "2026-10-01T00:00:00.000Z" },
+        { body: "any update?", createdAt: "2026-10-29T00:00:00.000Z" },
+      ],
+    );
+    expect(now - Date.parse("2026-10-01T00:00:00.000Z")).toBeGreaterThan(
+      FAILURE_COMMENT_INTERVAL_MS,
+    );
+    expect(failurePlan("failure", [stale], now)).toEqual({ action: "comment", number: 12 });
+  });
+
+  it("appends a disabled_inactivity comment and does not replace the issue body", () => {
+    expect(failurePlan("disabled_inactivity", [], now)).toEqual({ action: "create" });
+    const open = issue(
+      12,
+      FAILURE_TITLE,
+      FAILURE_LABEL,
+      "OPEN",
+      "2026-10-01T00:00:00.000Z",
+      "The original failure description.",
+    );
+    expect(failurePlan("disabled_inactivity", [open], now)).toEqual({
+      action: "comment",
+      number: 12,
+    });
+    expect(issueLabelArgs(12)).toEqual(["issue", "edit", "12", "--add-label", FAILURE_LABEL]);
+    expect(issueLabelArgs(12)).not.toContain("--body");
+    expect(inactivityBody("https://example.test/run")).toContain(DISABLED_MARKER);
+    expect(inactivityBody("https://example.test/run")).not.toContain(REMINDER_MARKER);
+    expect(inactivityBody("https://example.test/run")).not.toContain(
+      "The original failure description.",
+    );
+  });
+
+  it("skips a second disabled alert within a week of its own marker", () => {
+    const recent = issue(
+      12,
+      FAILURE_TITLE,
+      FAILURE_LABEL,
+      "OPEN",
+      "2026-10-01T00:00:00.000Z",
+      "The original failure description.",
+      [
+        { body: failureAgainBody("https://example.test/2"), createdAt: "2026-10-29T00:00:00.000Z" },
+        { body: inactivityBody("https://example.test/run"), createdAt: "2026-10-28T00:00:00.000Z" },
+      ],
+    );
+    expect(now - Date.parse("2026-10-28T00:00:00.000Z")).toBeLessThan(FAILURE_COMMENT_INTERVAL_MS);
+    expect(failurePlan("disabled_inactivity", [recent], now)).toEqual({ action: "none" });
+    const opened = issue(
+      12,
+      FAILURE_TITLE,
+      FAILURE_LABEL,
+      "OPEN",
+      "2026-10-29T00:00:00.000Z",
+      inactivityBody("https://example.test/run"),
+    );
+    expect(failurePlan("disabled_inactivity", [opened], now)).toEqual({ action: "none" });
+
+    const stale = issue(
+      12,
+      FAILURE_TITLE,
+      FAILURE_LABEL,
+      "OPEN",
+      "2026-09-01T00:00:00.000Z",
+      "The original failure description.",
+      [{ body: inactivityBody("https://example.test/run"), createdAt: "2026-10-01T00:00:00.000Z" }],
+    );
+    expect(failurePlan("disabled_inactivity", [stale], now)).toEqual({
+      action: "comment",
+      number: 12,
+    });
+  });
+
+  it("parses a JSON array of comments, including pretty-printed output", () => {
+    const pretty = `[
+  {
+    "createdAt": "2026-10-28T00:00:00.000Z",
+    "body": "first\\nsecond"
+  },
+  {
+    "created_at": "2026-10-01T00:00:00.000Z",
+    "body": "older"
+  }
+]`;
+    expect(parseCommentList(pretty)).toEqual([
+      { createdAt: "2026-10-28T00:00:00.000Z", body: "first\nsecond" },
+      { createdAt: "2026-10-01T00:00:00.000Z", body: "older" },
+    ]);
+    expect(() => parseCommentList('{"body":"not an array"}')).toThrow(/JSON array/);
+  });
+
+  it("requests comments since eight days ago and fetches the next page when a page is full", () => {
+    const first = new URLSearchParams(commentPagePath(12, 1, now).split("?")[1]);
+    expect(commentPagePath(12, 1, now).startsWith("repos/{owner}/{repo}/issues/12/comments?")).toBe(
+      true,
+    );
+    expect(first.get("per_page")).toBe("100");
+    expect(first.get("page")).toBe("1");
+    expect(first.get("since")).toBe(new Date(now - COMMENT_LOOKBACK_MS).toISOString());
+    expect(first.has("sort")).toBe(false);
+    expect(first.has("direction")).toBe(false);
+    expect(new URLSearchParams(commentPagePath(12, 2, now).split("?")[1]).get("page")).toBe("2");
+
+    const calls: string[] = [];
+    const full = JSON.stringify(
+      Array.from({ length: 100 }, () => ({
+        createdAt: "2026-10-22T00:00:00.000Z",
+        body: "old",
+      })),
+    );
+    const tail = JSON.stringify([
+      {
+        createdAt: "2026-10-28T00:00:00.000Z",
+        body: inactivityBody("https://example.test/run"),
+      },
+    ]);
+    const comments = collectCommentPages((page) => {
+      calls.push(commentPagePath(12, page, now));
+      return page === 1 ? full : tail;
+    });
+    expect(calls.map((path) => new URLSearchParams(path.split("?")[1]).get("page"))).toEqual([
+      "1",
+      "2",
+    ]);
+    expect(comments).toHaveLength(101);
+    expect(comments.at(-1)?.body).toContain(DISABLED_MARKER);
+  });
+
+  it("reads the contract workflow state from the Actions API without hiding errors", () => {
+    const yaml = readFileSync(".github/workflows/ci.yml", "utf8");
+    expect(yaml).toContain(
+      'gh api "repos/${GH_REPO}/actions/workflows/nri-contract.yml" --jq .state',
+    );
+    expect(yaml).not.toContain("workflow view");
+    expect(yaml).not.toContain("2>/dev/null");
+    expect(yaml).toContain(
+      "github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository",
+    );
+    expect(yaml).toContain("::warning::");
+    const contract = readFileSync(".github/workflows/nri-contract.yml", "utf8");
+    expect(jobSection(yaml, "verify")).not.toContain("concurrency:");
+    expect(jobSection(yaml, "contract-schedule")).not.toContain("concurrency:");
+    expect(jobSection(yaml, "contract-issue")).toContain("group: nri-contract-issue");
+    expect(jobSection(contract, "enable")).not.toContain("concurrency:");
+    expect(jobSection(contract, "contract")).not.toContain("concurrency:");
+    expect(jobSection(contract, "record")).toContain("group: nri-contract-issue");
+    expect(contract).not.toMatch(/^concurrency:/m);
+  });
+});
+
+function jobSection(yaml: string, jobName: string): string {
+  const header = `\n  ${jobName}:\n`;
+  const start = yaml.indexOf(header);
+  expect(start, jobName).toBeGreaterThanOrEqual(0);
+  const after = yaml.slice(start + header.length);
+  const next = after.search(/\n  [a-z0-9-]+:\n/);
+  const body = next === -1 ? after : after.slice(0, next);
+  return `${header}${body}`;
+}

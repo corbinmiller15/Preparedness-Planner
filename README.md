@@ -59,7 +59,7 @@ HUD's USPS ZIP-county crosswalk publishes a residential-address ratio (`RES_RATI
 - Inland flooding is `IFLD_RISKR` and `IFLD_RISKS`, mapped to Flood with coastal flooding.
 - A missing county returns `not_found`. A timeout, a network failure, an HTTP error, or a response that cannot be read returns `unavailable` with a `reason` of `timeout`, `network`, `http`, or `invalid_response`. The timeout covers the response body as well as the headers. Live mode keeps that failure visible.
 - A composite of Insufficient Data, No Rating, or Not Applicable is returned with a null rating and `engine.hazard.insufficient_data`. That is not a low-risk result. Puerto Rico and several territories use this label.
-- Successful county responses are kept in an in-memory LRU for 24 hours (`HAZARD_PROVIDER_CACHE_TTL_MS`, `0` disables it). Concurrent lookups for the same county share one request. Each ZIP prefix shard is read once per process.
+- Successful county responses are kept in an in-memory LRU for 24 hours (`HAZARD_PROVIDER_CACHE_TTL_MS`, `0` disables it). Concurrent lookups for the same county share one request. A valid ZIP prefix shard is read once per process. A corrupt or unreadable shard is not cached, so the next lookup reads the file again and can recover without a restart. A missing prefix stays cached.
 - Optional `HAZARD_PROVIDER_TIMEOUT_MS` defaults to 8000.
 
 To try one ZIP against the live layer:
@@ -106,4 +106,8 @@ npm run data:zip-county
 npm run hazard:lookup -- 70112
 ```
 
-`npm run test` is Vitest and stays offline. `npm run test:contract` calls the live FEMA county layer and checks that every requested field is still present. It is not part of `npm test` or CI. `.github/workflows/nri-contract.yml` runs it daily and when started by hand. `npm run test:e2e` is a Playwright smoke test of the placeholder page.
+`npm run test` is Vitest and stays offline. `npm run test:contract` calls the live FEMA county layer and checks that every requested field is still present. It is not part of `npm test` or CI. `.github/workflows/nri-contract.yml` runs it daily at 14:00 UTC and when started by hand.
+
+This repository is public. GitHub documents that scheduled workflows in a public repository are disabled after 60 days, and states that limit only for public repositories, so the rule applies here. GitHub does not define which events count as activity. Each contract run calls `gh workflow enable` on this workflow. That call is reported to reset the inactivity timer, but GitHub does not document it, and a workflow already disabled for inactivity cannot run the call. The behavior is best-effort. On push, and on pull requests from this repository, CI reads that workflow's state from the Actions API. A fork pull request only logs a warning. If the state is `disabled_inactivity`, CI appends a comment to one issue titled "FEMA NRI contract test failed" (`nri-contract`) and leaves the issue description in place. The same issue is used when the contract run fails, including a failed install or setup. Repeat failure comments during an outage are limited to once a week, counted from this workflow's own reminder comment. The first `disabled_inactivity` alert is immediate, and later ones are at most weekly, counted from the `<!-- nri-contract-disabled -->` marker. A later passing run comments and closes the issue. Only those short issue-writing jobs share a concurrency group. The contract test and the CI state check stay outside it, because GitHub keeps one running run and one pending run per group and replaces an older pending run.
+
+`npm run test:e2e` is a Playwright smoke test of the placeholder page.

@@ -71,7 +71,7 @@ export type HazardModuleResult =
       ratingNote: LocalMessage | null;
       /** Set when the ZIP meets more than one county. */
       areaNote: LocalMessage | null;
-      /** Set when ratings are the highest across more than one county. */
+      /** Set when ratings are the highest across more than one county that returned ratings. */
       highestNote: LocalMessage | null;
       /** Counties whose own composite had no comparable rating. */
       insufficientNote: LocalMessage | null;
@@ -290,7 +290,7 @@ export async function buildHazardModule(
     })
     .map((item) => item.county);
   const comparableWinner = bestComposite !== null && !NON_COMPARABLE.has(bestComposite.rating);
-  const countyCount = resolved.counties?.length ?? (targets.length > 1 ? targets.length : 0);
+  const ratedCount = ready.length;
 
   return {
     status: missingCounties.length > 0 ? "partial" : "ok",
@@ -306,8 +306,8 @@ export async function buildHazardModule(
     ratingNote: comparable.ratingNote,
     areaNote: areaNoteFor(resolved.counties),
     highestNote:
-      countyCount > 1
-        ? { key: "engine.hazard.highest_across_counties", params: { count: countyCount } }
+      ratedCount > 1
+        ? { key: "engine.hazard.highest_across_counties", params: { count: ratedCount } }
         : null,
     insufficientNote:
       comparableWinner && insufficientCounties.length > 0
