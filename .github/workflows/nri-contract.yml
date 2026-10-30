@@ -2,8 +2,15 @@ name: FEMA NRI contract
 
 on:
   schedule:
+    # Daily. A public repository pauses scheduled workflows after 60 days
+    # without activity. The result step refreshes one keepalive issue at
+    # least every 30 days so this schedule stays enabled. See the README.
     - cron: "0 14 * * *"
   workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
 
 jobs:
   contract:
@@ -16,4 +23,12 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run test:contract
+      - id: contract
+        run: npm run test:contract
+      - name: Record the contract result
+        if: always() && (steps.contract.outcome == 'success' || steps.contract.outcome == 'failure')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONTRACT_OUTCOME: ${{ steps.contract.outcome }}
+          CONTRACT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/nri-contract-issue.mjs

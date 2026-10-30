@@ -86,25 +86,25 @@ const enUS = {
   "engine.hazard.nri_http": "The FEMA National Risk Index returned an error.",
   "engine.hazard.nri_invalid_response": "The FEMA National Risk Index response could not be read.",
   "engine.hazard.nri_invalid_region":
-    "National Risk Index ratings need a 5-digit county FIPS code.",
+    "National Risk Index ratings need a 5-digit FIPS code for the county or equivalent area.",
   "engine.hazard.crosswalk_missing":
     "The ZIP to county crosswalk file is not loaded. Ratings for this postal code are unavailable.",
   "engine.hazard.enter_home_zip":
     "That ZIP is not a Census residential area. PO Box and some unique ZIPs are left out. Enter the ZIP where you live.",
   "engine.hazard.insufficient_data":
-    "The National Risk Index has no comparable rating for this county. Insufficient data is not a low-risk result.",
+    "The National Risk Index has no comparable rating for this county or equivalent area. Insufficient data is not a low-risk result.",
   "engine.hazard.land_area_weight":
-    "Counties are ranked by share of this ZIP's land area. A population share was not available, so this is not a count of residents.",
+    "Each county or equivalent area is ranked by share of this ZIP's land area. A population share was not available, so this is not a count of residents.",
   "engine.hazard.population_weight":
-    "Counties are ranked by estimated share of 2020 Census population. The estimate allocates each tract's population by land area inside the ZIP.",
+    "Each county or equivalent area is ranked by estimated share of 2020 Census population. The estimate allocates each tract's population by land area inside the ZIP.",
   "engine.hazard.highest_across_counties":
-    "Each rating is the highest across the {count} counties this ZIP touches. The county is shown with the rating.",
+    "Each rating is the highest across the {count} counties or equivalent areas this ZIP touches. The county or equivalent area is shown with the rating.",
   "engine.hazard.partial_counties": "Ratings are unavailable for {counties}.",
   "engine.hazard.county_insufficient":
     "No comparable National Risk Index rating for {counties}. That is not a low-risk result.",
   "engine.hazard.crosswalk_invalid": "The ZIP to county data for this area could not be read.",
   "engine.hazard.power_outage":
-    "Power outage is not a National Risk Index hazard. The actions have no county rating.",
+    "Power outage is not a National Risk Index hazard. The actions have no county or equivalent area rating.",
   "engine.hazard.gb_unavailable":
     "UK postal codes and hazard ratings are not available in this beta.",
   "engine.hazard.unsupported_country": "No region resolver is registered for this country.",

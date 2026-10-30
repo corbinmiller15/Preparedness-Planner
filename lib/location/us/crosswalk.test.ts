@@ -232,20 +232,34 @@ describe("crosswalk shards", () => {
     expect(crosswalkFileReads() - before).toBe(2);
   });
 
-  it("reports a corrupt prefix file instead of a missing ZIP", async () => {
+  it("reports a corrupt prefix file and reads a repaired file without a restart", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "crosswalk-bad-"));
+    const shard = path.join(dir, "422.json");
     writeFileSync(path.join(dir, "index.json"), "{}\n");
-    writeFileSync(path.join(dir, "422.json"), "{not json");
+    writeFileSync(shard, "{not json");
     clearZipCountyCrosswalkCache();
     const resolver = crosswalkResolver(dir);
+    const before = crosswalkFileReads();
     await expect(resolver?.resolve("42223")).resolves.toEqual({
       status: "unavailable",
       message: { key: "engine.hazard.crosswalk_invalid" },
     });
+    const afterFirst = crosswalkFileReads();
+    expect(afterFirst).toBeGreaterThan(before);
     await expect(resolver?.resolve("42223")).resolves.toMatchObject({
       status: "unavailable",
       message: { key: "engine.hazard.crosswalk_invalid" },
     });
+    expect(crosswalkFileReads()).toBeGreaterThan(afterFirst);
+    writeFileSync(shard, JSON.stringify({ "42223": [["21047", 1, "p"]] }));
+    await expect(resolver?.resolve("42223")).resolves.toMatchObject({
+      status: "found",
+      region: { id: "21047" },
+    });
+    const beforeMissing = crosswalkFileReads();
+    expect(loadZipShard("999", dir)).toEqual([]);
+    expect(loadZipShard("999", dir)).toEqual([]);
+    expect(crosswalkFileReads() - beforeMissing).toBe(1);
   });
 
   it("uses bundled Census names, including a Connecticut planning region", () => {
