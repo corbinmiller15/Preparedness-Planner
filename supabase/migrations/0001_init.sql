@@ -29,7 +29,10 @@ create type public.storage_space as enum (
 create type public.plan_tier as enum (
   'go_bag',
   '72_hour',
-  '1_month'
+  '1_month',
+  '3_month',
+  '6_month',
+  '12_month'
 );
 
 create type public.unit_system as enum (
@@ -66,6 +69,7 @@ create table public.household_members (
   pregnancy_status text,
   is_child boolean not null default false,
   special_needs text,
+  activity_level text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint household_members_label_check check (char_length(label) between 1 and 80),
@@ -76,6 +80,9 @@ create table public.household_members (
   constraint household_members_age_or_birth_year check (age is not null or birth_year is not null),
   constraint household_members_sex_check check (
     sex is null or sex in ('female', 'male', 'unspecified')
+  ),
+  constraint household_members_activity_check check (
+    activity_level is null or activity_level in ('sedentary', 'moderate', 'active')
   ),
   constraint household_members_pregnancy_check check (
     pregnancy_status is null
@@ -94,6 +101,9 @@ create table public.household_members (
 
 comment on table public.household_members is
   'People covered by the account. A solo plan has one row.';
+
+comment on column public.household_members.activity_level is
+  'USDA calorie-table activity: sedentary, moderate, or active. Null leaves that person''s calories blank.';
 
 create index household_members_account_id_idx on public.household_members (account_id);
 

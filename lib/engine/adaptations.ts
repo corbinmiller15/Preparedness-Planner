@@ -1,6 +1,12 @@
 import { TIER_DAYS } from "@/lib/facts/tiers";
 import type { LocalMessage } from "@/lib/i18n";
-import { BUDGET_PATHS, type BudgetPath, type PlanTier } from "@/lib/onboarding/options";
+import {
+  BUDGET_LEVEL_TO_PATH,
+  BUDGET_PATHS,
+  type BudgetLevel,
+  type BudgetPath,
+  type PlanTier,
+} from "@/lib/onboarding/options";
 import type {
   AdaptationContext,
   BudgetPathOffer,
@@ -41,6 +47,7 @@ export function supplyItem(
   context: AdaptationContext,
 ): SupplyItem {
   return {
+    kind: "sourced",
     factIds,
     text,
     budgetPath: null,
@@ -49,14 +56,19 @@ export function supplyItem(
   };
 }
 
-export function budgetPathOffers(tier: PlanTier): Record<BudgetPath, BudgetPathOffer> {
+export function budgetPathOffers(
+  tier: PlanTier,
+  budgetLevel: BudgetLevel,
+): Record<BudgetPath, BudgetPathOffer> {
   const tierFactId = TIER_DAYS[tier].factId;
+  const defaultPath = BUDGET_LEVEL_TO_PATH[budgetLevel];
   const offers = {} as Record<BudgetPath, BudgetPathOffer>;
   for (const path of BUDGET_PATHS) {
     offers[path] = {
       tier,
       tierFactId,
       path,
+      isDefault: path === defaultPath,
       status: "no_source_data",
       message: pathMessage,
       factIds: [],

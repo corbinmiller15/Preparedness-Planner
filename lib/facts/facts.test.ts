@@ -78,7 +78,8 @@ describe("fact catalog", () => {
     expect(prose).not.toContain("redcross.org");
     expect(prose).not.toContain("churchofjesuschrist.org");
     expect(prose).not.toContain("byu.edu");
-    expect(FURTHER_READING.byuFoodStorage.url).toContain("https:/brightspotcdn");
+    expect(FURTHER_READING.byuFoodStorage.url).toContain("https://brightspotcdn.byu.edu");
+    expect(FURTHER_READING.byuFoodStorage.url).not.toContain("https:/brightspotcdn");
     expect(getFact("GAP-04")?.kind).toBe("gap");
   });
 

@@ -7,6 +7,7 @@ import type {
   StorageSpace,
   UnitSystem,
 } from "@/lib/onboarding/options";
+import type { Assumption } from "@/lib/assumptions/assumptions";
 import type { Volume } from "@/lib/units";
 import type { ActivityLevel, PregnancyStatus } from "@/lib/facts/calories";
 
@@ -69,6 +70,7 @@ export type ItemAdaptation = {
 
 /** A checklist or safety line. `budgetPath` stays null until a fact assigns one. */
 export type SupplyItem = {
+  kind: "sourced";
   factIds: string[];
   text: string;
   budgetPath: null;
@@ -81,6 +83,8 @@ export type BudgetPathOffer = {
   /** Fact for the tier this offer belongs to. It does not define a price. */
   tierFactId: string;
   path: BudgetPath;
+  /** True for the path selected from the person's budget level. */
+  isDefault: boolean;
   status: "no_source_data";
   message: LocalMessage;
   factIds: string[];
@@ -96,8 +100,12 @@ export type WaterResult =
     })
   | {
       status: "calculated";
+      kind: "sourced";
       people: number;
+      /** Days multiplied into the gallon total. Capped at the sourced window. */
       days: number;
+      /** Full tier length, including days past the sourced water window. */
+      tierDays: number;
       daysAreGovernmentFigure: boolean;
       sourceGallonsPerPersonPerDay: 1;
       appliedGallonsPerPersonPerDay: number;
@@ -107,6 +115,7 @@ export type WaterResult =
       perPersonPerDay: Volume;
       factIds: string[];
       notes: SourcedNote[];
+      assumptions: Assumption[];
       budgetPath: null;
       budgetPathsOffered: readonly BudgetPath[];
       adaptation: ItemAdaptation;
@@ -157,6 +166,7 @@ export type FoodResult =
     })
   | {
       status: "calculated" | "partial";
+      kind: "sourced";
       method: "calorie_method";
       days: number;
       daysAreGovernmentFigure: boolean;

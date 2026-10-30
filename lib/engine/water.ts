@@ -1,3 +1,4 @@
+import { assumptionsForTier, SOURCED_DURATION_DAYS } from "@/lib/assumptions/assumptions";
 import { GALLONS_PER_PERSON_PER_DAY, HOT_CLIMATE_WATER_FACTOR } from "@/lib/facts/water";
 import { TIER_DAYS } from "@/lib/facts/tiers";
 import { BUDGET_PATHS, type UnitSystem } from "@/lib/onboarding/options";
@@ -41,11 +42,15 @@ export function planWater(args: {
   }
 
   const tierDays = TIER_DAYS[args.context.tier];
+  const sourcedDays = Math.min(tierDays.days, SOURCED_DURATION_DAYS);
+  const beyondSourcedRange = tierDays.days > SOURCED_DURATION_DAYS;
   const hotClimateFactor = args.hotClimate ? HOT_CLIMATE_WATER_FACTOR : 1;
   const applied = GALLONS_PER_PERSON_PER_DAY * hotClimateFactor;
-  const totalGallons = args.people.length * applied * tierDays.days;
+  const totalGallons = args.people.length * applied * sourcedDays;
   const factIds = ["WTR-001", tierDays.factId];
-  if (args.context.tier === "go_bag" || args.context.tier === "72_hour") {
+  if (beyondSourcedRange) {
+    factIds.push("WTR-004", "WTR-005");
+  } else {
     factIds.push("WTR-003");
   }
   if (args.hotClimate) factIds.push("WTR-008");
@@ -58,11 +63,11 @@ export function planWater(args: {
       gapIds: [],
     });
   }
-  if (args.context.tier === "1_month") {
+  if (beyondSourcedRange) {
     notes.push({
-      message: { key: "engine.water.month_days" },
-      factIds: ["TIER-1M", "GAP-01"],
-      gapIds: ["GAP-01"],
+      message: { key: "engine.water.sourced_cap" },
+      factIds: ["WTR-004", "WTR-005"],
+      gapIds: [],
     });
   }
   if (args.hotClimate) {
@@ -85,9 +90,11 @@ export function planWater(args: {
 
   return {
     status: "calculated",
+    kind: "sourced",
     people: args.people.length,
-    days: tierDays.days,
-    daysAreGovernmentFigure: tierDays.governmentDayCount,
+    days: sourcedDays,
+    tierDays: tierDays.days,
+    daysAreGovernmentFigure: beyondSourcedRange ? true : tierDays.governmentDayCount,
     sourceGallonsPerPersonPerDay: GALLONS_PER_PERSON_PER_DAY,
     appliedGallonsPerPersonPerDay: applied,
     hotClimateFactor,
@@ -96,6 +103,7 @@ export function planWater(args: {
     perPersonPerDay: volumeFromGallons(applied, args.unitSystem),
     factIds,
     notes,
+    assumptions: assumptionsForTier(tierDays.days).filter((item) => item.topic === "water"),
     ...offered,
     adaptation: itemAdaptation(["WTR-001"], args.context),
   };

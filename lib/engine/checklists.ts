@@ -1,11 +1,14 @@
+import { assumptionsForTier } from "@/lib/assumptions/assumptions";
 import { FOOD_SAFETY_FACTS } from "@/lib/facts/food-safety";
 import { KIT_FACTS, KIT_MAINTENANCE } from "@/lib/facts/kit";
+import { TIER_DAYS } from "@/lib/facts/tiers";
 import { supplyItem } from "@/lib/engine/adaptations";
 import type { AdaptationContext, SupplyItem } from "@/lib/engine/types";
 
 export type KitResult = {
   items: SupplyItem[];
   factIds: string[];
+  assumptions: ReturnType<typeof assumptionsForTier>;
   maintenance: {
     text: string;
     sourceUrls: string[];
@@ -18,6 +21,9 @@ export function planKit(context: AdaptationContext): KitResult {
   return {
     items,
     factIds: items.flatMap((item) => item.factIds),
+    assumptions: assumptionsForTier(TIER_DAYS[context.tier].days).filter(
+      (item) => item.topic === "supplies",
+    ),
     maintenance: {
       text: KIT_MAINTENANCE.text,
       sourceUrls: KIT_MAINTENANCE.sources.map((source) => source.url),

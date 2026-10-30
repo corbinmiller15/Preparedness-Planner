@@ -17,9 +17,9 @@ const enUS = {
   "home.lede":
     "A preparedness planner for you, or for the people you live with. It will turn public federal and state guidance into water, calorie, kit, and hazard notes, and it will leave a blank where that guidance has no number.",
   "home.point.water":
-    "Water is one gallon per person per day, for as many days as the tier calls for.",
+    "Stored water is one gallon per person per day for 3 days, or for about 2 weeks on a longer tier. Past that, the plan marks a treatment assumption instead of a larger gallon total.",
   "home.point.calories":
-    "Calories come from USDA tables. Pregnancy and breastfeeding adders are applied only when the table has a row. Missing rows stay blank.",
+    "Calories are the USDA daily figure times every day in the tier. Pregnancy and breastfeeding adders apply only when the table has a row. Missing rows stay blank.",
   "home.point.kit":
     "A 72-hour kit and hazard notes stay attached to the public-source fact they came from.",
   "home.pending":
@@ -34,14 +34,12 @@ const enUS = {
   "engine.plan.no_people": "Add at least one person. A plan can cover only you.",
   "engine.water.go_bag_days":
     "This uses 3 days, matching the CDC minimum water supply. The go-bag source does not give its own day count, and it also mentions a work kit of at least 24 hours.",
-  "engine.water.month_days":
-    "30 days is this planner's length for a 1-month tier. The state source calls for a month of food at home and does not print a day count.",
+  "engine.water.sourced_cap":
+    "This gallon total is a 2-week stored supply. It is not a stored-water figure for the rest of the tier.",
   "engine.water.special_group":
     "Children, pregnant or breastfeeding people, and people who are ill or have special needs may need more water. No numeric multiplier is published for that, so the total is not increased.",
   "engine.water.hot_climate":
     "Very hot temperatures can double water needs. This total uses that factor of 2.",
-  "engine.food.go_bag":
-    "No government go-bag food quantity was found, so this plan does not estimate calories or pounds for a go bag.",
   "engine.food.table_edition":
     "Calorie figures use the USDA Food Patterns age-by-sex table. The 2025-2030 Dietary Guidelines do not publish that table. Children under 2 are outside it.",
   "engine.food.under_two":

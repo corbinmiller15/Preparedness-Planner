@@ -26,7 +26,21 @@ export const BUDGET_PATHS = ["free", "low_cost", "standard"] as const;
 
 export type BudgetPath = (typeof BUDGET_PATHS)[number];
 
-export const PLAN_TIERS = ["go_bag", "72_hour", "1_month"] as const;
+/** Which path a plan shows first. Items are still not priced by a source fact. */
+export const BUDGET_LEVEL_TO_PATH = {
+  minimal: "free",
+  moderate: "low_cost",
+  comfortable: "standard",
+} as const satisfies Record<BudgetLevel, BudgetPath>;
+
+export const PLAN_TIERS = [
+  "go_bag",
+  "72_hour",
+  "1_month",
+  "3_month",
+  "6_month",
+  "12_month",
+] as const;
 
 export type PlanTier = (typeof PLAN_TIERS)[number];
 

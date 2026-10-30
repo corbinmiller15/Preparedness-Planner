@@ -77,7 +77,17 @@ describe("preparedness engine", () => {
         ],
       }),
     );
-    expect(month.water.status === "calculated" && month.water.totalGallons).toBe(120);
+    expect(month.water.status === "calculated" && month.water.totalGallons).toBe(56);
+    expect(month.water.status === "calculated" && month.water.tierDays).toBe(30);
+    expect(month.water.status === "calculated" && month.water.days).toBe(14);
+    expect(month.food.status === "calculated" && month.food.dailyKcal).toBe(8000);
+    expect(month.food.status === "calculated" && month.food.tierKcal).toBe(8000 * 30);
+    expect(month.assumptions.map((item) => item.id)).toEqual([
+      "ASM-WTR-REMAINDER",
+      "ASM-SUPPLIES-REMAINDER",
+    ]);
+    expect(month.assumptions.every((item) => item.kind === "assumption")).toBe(true);
+    expect(JSON.stringify(month.assumptions)).not.toMatch(/\d+\s+gallons/);
 
     const hot = await buildPreparednessPlan(
       input({ hotClimate: true, people: [person(), person({ id: "bee", label: "Bee" })] }),
@@ -92,13 +102,31 @@ describe("preparedness engine", () => {
     expect(metric.food.status === "calculated" && metric.food.dailyKcal).toBe(2000);
   });
 
-  it("does not invent a go-bag food quantity or a calorie for a child under 2", async () => {
+  it("uses planner day counts for longer food tiers and caps cited water", async () => {
+    const year = await buildPreparednessPlan(input({ tier: "12_month" }));
+    expect(year.food.status === "calculated" && year.food.days).toBe(365);
+    expect(year.food.status === "calculated" && year.food.tierKcal).toBe(2000 * 365);
+    expect(year.water.status === "calculated" && year.water.totalGallons).toBe(14);
+    expect(year.water.status === "calculated" && year.water.kind).toBe("sourced");
+    const quarter = await buildPreparednessPlan(input({ tier: "3_month" }));
+    expect(quarter.food.status === "calculated" && quarter.food.tierKcal).toBe(2000 * 90);
+    const half = await buildPreparednessPlan(input({ tier: "6_month" }));
+    expect(half.food.status === "calculated" && half.food.tierKcal).toBe(2000 * 180);
+    expect(half.kit.assumptions[0]?.kind).toBe("assumption");
+    expect(half.kit.items.every((item) => item.kind === "sourced")).toBe(true);
+  });
+
+  it("keeps go-bag water at 3 days and still counts calories for that tier", async () => {
     const goBag = await buildPreparednessPlan(input({ tier: "go_bag" }));
     expect(goBag.water.status === "calculated" && goBag.water.totalGallons).toBe(3);
-    expect(goBag.food.status).toBe("no_source_data");
-    if (goBag.food.status !== "no_source_data") return;
-    expect(goBag.food.gapIds).toEqual(["GAP-04"]);
-    expect(goBag.food).not.toHaveProperty("dailyKcal");
+    expect(goBag.water.status === "calculated" && goBag.water.assumptions).toEqual([]);
+    expect(goBag.assumptions).toEqual([]);
+    expect(goBag.food.status).toBe("calculated");
+    if (goBag.food.status !== "calculated") return;
+    expect(goBag.food.kind).toBe("sourced");
+    expect(goBag.food.dailyKcal).toBe(2000);
+    expect(goBag.food.tierKcal).toBe(6000);
+    expect(goBag.food.governmentMassQuantity.gapIds).toEqual(["GAP-04"]);
     expect(
       goBag.water.status === "calculated" &&
         goBag.water.notes.some((note) => note.factIds.includes("TIER-GO")),
@@ -197,16 +225,20 @@ describe("preparedness engine", () => {
     );
     expect(limited.kit.items.every((item) => item.budgetPath === null)).toBe(true);
     expect(limited.kit.items[0]?.budgetPathsOffered).toEqual(["free", "low_cost", "standard"]);
+    expect(limited.defaultBudgetPath).toBe("free");
+    expect(roomy.defaultBudgetPath).toBe("standard");
   });
 
   it("offers free, low-cost, and standard paths on every tier without assigning items", async () => {
     for (const tier of PLAN_TIERS) {
       const plan = await buildPreparednessPlan(input({ tier }));
       expect(Object.keys(plan.budgetPaths)).toEqual([...BUDGET_PATHS]);
+      expect(plan.defaultBudgetPath).toBe("low_cost");
       for (const path of BUDGET_PATHS) {
         expect(plan.budgetPaths[path]).toMatchObject({
           tier,
           path,
+          isDefault: path === "low_cost",
           status: "no_source_data",
           items: [],
           factIds: [],

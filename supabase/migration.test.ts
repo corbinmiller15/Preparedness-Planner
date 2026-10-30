@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { PREGNANCY_STATUSES } from "@/lib/facts/calories";
+import { ACTIVITY_LEVELS, PREGNANCY_STATUSES } from "@/lib/facts/calories";
 import {
   BUDGET_LEVELS,
   HOME_TYPES,
@@ -27,6 +27,8 @@ describe("initial migration", () => {
       expect(sql).toContain(`'${value}'`);
     }
     for (const status of PREGNANCY_STATUSES) expect(sql).toContain(`'${status}'`);
+    for (const level of ACTIVITY_LEVELS) expect(sql).toContain(`'${level}'`);
+    expect(sql).toContain("activity_level");
     expect(sql).toContain("account_id = auth.uid()");
     expect(sql).toContain("id = auth.uid()");
     expect(sql).toContain("country_code");

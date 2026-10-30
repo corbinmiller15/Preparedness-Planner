@@ -74,14 +74,17 @@ export const TIER_FACTS = [
 
 /**
  * Day counts used by the planner.
- * 72-hour is the CDC 3-day supply. Go-bag uses that same 3-day water minimum
- * because TIER-GO does not state its own count. 30 days is a planner definition
- * for the 1-month tier, not a number printed by the state source.
+ * 72-hour is the CDC 3-day supply. Go-bag water stays at that same 3 days.
+ * 30, 90, 180, and 365 are planner definitions for the month tiers named by
+ * the TIER- facts. Those facts do not print a day count.
  */
 export const TIER_DAYS = {
   go_bag: { days: 3, factId: "TIER-GO", governmentDayCount: false },
   "72_hour": { days: 3, factId: "TIER-72H", governmentDayCount: true },
   "1_month": { days: 30, factId: "TIER-1M", governmentDayCount: false },
+  "3_month": { days: 90, factId: "TIER-3M", governmentDayCount: false },
+  "6_month": { days: 180, factId: "TIER-6M", governmentDayCount: false },
+  "12_month": { days: 365, factId: "TIER-12M", governmentDayCount: false },
 } as const satisfies Record<
   PlanTier,
   { days: number; factId: TierFact["id"]; governmentDayCount: boolean }

@@ -8,12 +8,14 @@ It is not an official alert source. In an emergency, call 911.
 
 Facts live in `lib/facts` with the ids from the preparedness facts sheet (`WTR-`, `CAL-`, `KIT-`, `TIER-`, `FS-`, `HAZ-`, `GAP-`). Every calculated line points at those ids.
 
-- **Water.** 1 gallon per person per day, times the tier length. Go-bag and 72-hour use 3 days. A 1-month tier uses 30 planner days. Very hot conditions use the published factor of 2. Children, pregnancy, breastfeeding, and special needs add a note, not an extra number (`GAP-03`).
-- **Calories.** USDA Estimated Calorie Needs by age, sex, and activity, plus the pregnancy and breastfeeding adders. A household total is the sum of the people who have a row, times the tier days. Under age 2 (`GAP-02`), missing sex or activity, and a go-bag food quantity (`GAP-04`) come back as `no_source_data` instead of a guessed number.
-- **72-hour kit.** The Ready.gov basic and additional items.
-- **Hazards.** Postal code, then region, then a country hazard provider. The US path maps a ZIP to a county FIPS and reads National Risk Index style ratings. Ready.gov before / during / after actions are attached only for US regions. The shipped ratings are a **fixture**, not live FEMA scores. `createFemaNriHazardProvider` can query the public county layer when you pass it in.
+- **Tiers.** `go_bag`, `72_hour`, `1_month`, `3_month`, `6_month`, and `12_month`. Go-bag and 72-hour are 3 days. The month tiers use 30, 90, 180, and 365 days as planner definitions tied to the `TIER-` facts.
+- **Water.** 1 gallon per person per day inside the sourced window: 3 days for a go-bag or 72-hour tier, and 14 days when the tier is longer. Very hot conditions use the published factor of 2 on that stored amount. Children, pregnancy, breastfeeding, and special needs add a note, not an extra number (`GAP-03`).
+- **Food.** USDA daily calories times every day in the tier, including a go-bag. Under age 2 (`GAP-02`) and missing sex or activity stay blank. Pound quantities stay `no_source_data`.
+- **Assumptions.** Water treatment for the rest of a long tier, and extra non-food supplies past about two weeks, are `kind: "assumption"` in `lib/assumptions/assumptions.ts`. They are not cited figures.
+- **72-hour kit.** The Ready.gov basic and additional items. On a longer tier the same list stays sourced, and the extra duration is the supplies assumption.
+- **Hazards.** Postal code, then region, then a country hazard provider. The US path maps a ZIP to a county FIPS and reads National Risk Index style ratings. Ready.gov before / during / after actions are attached only for US regions. The shipped ratings are a **fixture**, and that fixture is the default. `createFemaNriHazardProvider` is ready to query the public county layer when you pass it in.
 
-Home type, budget level, and storage space are stored and echoed onto each item. They do not change quantities. There is no sourced storage limit or price. Each tier offers `free`, `low_cost`, and `standard` budget paths with empty item lists until a fact assigns items to a path. Item `budgetPath` stays `null`.
+Home type, budget level, storage space, and activity level are saved with the household. Home type, budget, and storage do not change quantities. There is no sourced storage limit or price. Each tier offers `free`, `low_cost`, and `standard` paths. Budget level chooses the default path: minimal shows free, moderate shows low cost, and comfortable shows standard. Item `budgetPath` stays `null` until a fact assigns one.
 
 Units default to US gallons. Pass `unitSystem: "metric"` for litres. The source quantity stays in gallons.
 

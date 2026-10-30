@@ -62,7 +62,7 @@ export const SOURCES = {
 
 /**
  * Agreeing pages that are not copied into facts or engine output.
- * The BYU URL is stored exactly as it appeared in the source sheet, including the malformed slash.
+ * The BYU link keeps the sheet's path, with the broken `https:/` corrected to `https://`.
  */
 export const FURTHER_READING = {
   redCrossKit: {
@@ -91,7 +91,7 @@ export const FURTHER_READING = {
   },
   byuFoodStorage: {
     id: "link:byu-food-storage",
-    url: "https://ndfs.byu.edu/https:/brightspotcdn.byu.edu/66/a8/0a18984741f6a699f6034adbbb30/an-approach-to-longer-term-food-storage-6june2024.pdf",
+    url: "https://ndfs.byu.edu/https://brightspotcdn.byu.edu/66/a8/0a18984741f6a699f6034adbbb30/an-approach-to-longer-term-food-storage-6june2024.pdf",
     publisher: "Brigham Young University",
     linkOnly: true,
   },

@@ -3,7 +3,8 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 type HomeType = "apartment_renter" | "house_owner" | "house_renter" | "mobile_home" | "other";
 type BudgetLevel = "minimal" | "moderate" | "comfortable";
 type StorageSpace = "very_limited" | "some" | "plenty";
-type PlanTier = "go_bag" | "72_hour" | "1_month";
+type PlanTier = "go_bag" | "72_hour" | "1_month" | "3_month" | "6_month" | "12_month";
+type ActivityLevel = "sedentary" | "moderate" | "active";
 type UnitSystem = "imperial" | "metric";
 type Sex = "female" | "male" | "unspecified";
 type PregnancyStatus =
@@ -61,6 +62,7 @@ export type Database = {
           pregnancy_status: PregnancyStatus | null;
           is_child: boolean;
           special_needs: string | null;
+          activity_level: ActivityLevel | null;
           created_at: string;
           updated_at: string;
         };
@@ -74,6 +76,7 @@ export type Database = {
           pregnancy_status?: PregnancyStatus | null;
           is_child?: boolean;
           special_needs?: string | null;
+          activity_level?: ActivityLevel | null;
         };
         Update: {
           label?: string;
@@ -83,6 +86,7 @@ export type Database = {
           pregnancy_status?: PregnancyStatus | null;
           is_child?: boolean;
           special_needs?: string | null;
+          activity_level?: ActivityLevel | null;
         };
         Relationships: [];
       };

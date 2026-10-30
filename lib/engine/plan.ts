@@ -1,3 +1,4 @@
+import { assumptionsForTier } from "@/lib/assumptions/assumptions";
 import { budgetPathOffers } from "@/lib/engine/adaptations";
 import { resolveAge } from "@/lib/engine/ages";
 import { planFood } from "@/lib/engine/calories";
@@ -8,7 +9,8 @@ import { buildHazardModule, type HazardModuleResult } from "@/lib/hazards/module
 import { defaultHazardDependencies, type HazardDependencies } from "@/lib/hazards/defaults";
 import type { BudgetPathOffer } from "@/lib/engine/types";
 import type { BudgetPath } from "@/lib/onboarding/options";
-import { DEFAULT_UNIT_SYSTEM } from "@/lib/onboarding/options";
+import { BUDGET_LEVEL_TO_PATH, DEFAULT_UNIT_SYSTEM } from "@/lib/onboarding/options";
+import { TIER_DAYS } from "@/lib/facts/tiers";
 import type { KitResult, FoodSafetyResult } from "@/lib/engine/checklists";
 
 export type PreparednessPlan = {
@@ -24,6 +26,8 @@ export type PreparednessPlan = {
   kit: KitResult;
   foodSafety: FoodSafetyResult;
   hazards: HazardModuleResult;
+  assumptions: ReturnType<typeof assumptionsForTier>;
+  defaultBudgetPath: BudgetPath;
   budgetPaths: Record<BudgetPath, BudgetPathOffer>;
 };
 
@@ -68,6 +72,8 @@ export async function buildPreparednessPlan(
     kit: planKit(context),
     foodSafety: planFoodSafety(context),
     hazards,
-    budgetPaths: budgetPathOffers(input.tier),
+    assumptions: assumptionsForTier(TIER_DAYS[input.tier].days),
+    defaultBudgetPath: BUDGET_LEVEL_TO_PATH[input.budgetLevel],
+    budgetPaths: budgetPathOffers(input.tier, input.budgetLevel),
   };
 }

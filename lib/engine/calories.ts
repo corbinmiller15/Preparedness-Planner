@@ -26,6 +26,31 @@ const offered: {
   budgetPathsOffered: BUDGET_PATHS,
 };
 
+function massGap(tier: AdaptationContext["tier"], factId: string): NoSourceData {
+  if (tier === "go_bag") {
+    return {
+      status: "no_source_data",
+      message: { key: "engine.food.pounds_not_given" },
+      factIds: ["GAP-04", factId],
+      gapIds: ["GAP-04"],
+    };
+  }
+  if (tier === "72_hour") {
+    return {
+      status: "no_source_data",
+      message: { key: "engine.food.pounds_not_given" },
+      factIds: [factId],
+      gapIds: [],
+    };
+  }
+  return {
+    status: "no_source_data",
+    message: { key: "engine.food.month_mass" },
+    factIds: ["GAP-01", factId],
+    gapIds: ["GAP-01"],
+  };
+}
+
 function memberBase(person: PlanPerson): { personId: string; label: string } {
   return { personId: person.id, label: person.label };
 }
@@ -66,16 +91,6 @@ export function planFood(args: {
       ...offered,
     };
   }
-  if (args.context.tier === "go_bag") {
-    return {
-      status: "no_source_data",
-      message: { key: "engine.food.go_bag" },
-      factIds: ["GAP-04", "TIER-GO"],
-      gapIds: ["GAP-04"],
-      peopleNotEvaluated: args.people.map((person) => person.id),
-      ...offered,
-    };
-  }
 
   const members = args.people.map((person) => memberCalories(person, tierDays.days, args.asOf));
   const counted = members.filter(
@@ -89,20 +104,7 @@ export function planFood(args: {
       gapIds: ["GAP-02"],
     },
   ];
-  const governmentMassQuantity: NoSourceData =
-    args.context.tier === "1_month"
-      ? {
-          status: "no_source_data",
-          message: { key: "engine.food.month_mass" },
-          factIds: ["GAP-01", "TIER-1M"],
-          gapIds: ["GAP-01"],
-        }
-      : {
-          status: "no_source_data",
-          message: { key: "engine.food.pounds_not_given" },
-          factIds: ["TIER-72H"],
-          gapIds: [],
-        };
+  const governmentMassQuantity: NoSourceData = massGap(args.context.tier, tierDays.factId);
 
   if (counted.length === 0) {
     return {
@@ -121,7 +123,8 @@ export function planFood(args: {
   for (const member of members) {
     for (const id of member.factIds) factIds.add(id);
   }
-  if (args.context.tier === "1_month") factIds.add("GAP-01");
+  if (args.context.tier === "go_bag") factIds.add("GAP-04");
+  if (args.context.tier !== "go_bag" && args.context.tier !== "72_hour") factIds.add("GAP-01");
   const excludedPersonIds = members
     .filter((member) => member.status === "no_source_data")
     .map((member) => member.personId);
@@ -130,6 +133,7 @@ export function planFood(args: {
 
   return {
     status: partial ? "partial" : "calculated",
+    kind: "sourced",
     method: "calorie_method",
     days: tierDays.days,
     daysAreGovernmentFigure: tierDays.governmentDayCount,
