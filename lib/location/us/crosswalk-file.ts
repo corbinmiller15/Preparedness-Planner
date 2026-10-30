@@ -25,7 +25,10 @@ export function defaultCountyNamesPath(cwd = process.cwd()): string {
   return path.join(cwd, "data", COUNTY_NAMES_FILENAME);
 }
 
-const shards = new Map<string, ZipCountyMatch[]>();
+type ShardLoad =
+  { status: "ok"; rows: ZipCountyMatch[] } | { status: "missing" } | { status: "invalid" };
+
+const shards = new Map<string, ShardLoad>();
 let shardReads = 0;
 let namesCache: { path: string; names: Map<string, string> } | null = null;
 let nameReads = 0;
@@ -79,21 +82,54 @@ export function parseZipShardJson(raw: string): ZipCountyMatch[] {
   return rows;
 }
 
-/** Loads one 3-digit ZIP prefix. A missing shard is cached as empty and is not a network call. */
-export function loadZipShard(prefix: string, dir = defaultCrosswalkDir()): ZipCountyMatch[] {
-  if (!/^\d{3}$/.test(prefix)) return [];
+function readZipShard(prefix: string, dir: string): ShardLoad {
+  if (!/^\d{3}$/.test(prefix)) return { status: "missing" };
   const filePath = path.join(dir, `${prefix}.json`);
   const hit = shards.get(filePath);
   if (hit) return hit;
   shardReads += 1;
-  let rows: ZipCountyMatch[] = [];
+  let raw: string;
   try {
-    rows = parseZipShardJson(readFileSync(filePath, "utf8"));
-  } catch {
-    rows = [];
+    raw = readFileSync(filePath, "utf8");
+  } catch (error) {
+    const missing = (error as NodeJS.ErrnoException).code === "ENOENT";
+    const result: ShardLoad = { status: missing ? "missing" : "invalid" };
+    shards.set(filePath, result);
+    return result;
   }
-  shards.set(filePath, rows);
-  return rows;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    const result: ShardLoad = { status: "invalid" };
+    shards.set(filePath, result);
+    return result;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    const result: ShardLoad = { status: "invalid" };
+    shards.set(filePath, result);
+    return result;
+  }
+  const rows: ZipCountyMatch[] = [];
+  for (const [zip, pairs] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!/^\d{5}$/.test(zip) || !Array.isArray(pairs)) continue;
+    for (const pair of pairs) {
+      const row = matchFromPair(zip, pair);
+      if (row) rows.push(row);
+    }
+  }
+  const result: ShardLoad = { status: "ok", rows };
+  shards.set(filePath, result);
+  return result;
+}
+
+/** Loads one 3-digit ZIP prefix. A missing shard is an empty list. A corrupt file throws. */
+export function loadZipShard(prefix: string, dir = defaultCrosswalkDir()): ZipCountyMatch[] {
+  const loaded = readZipShard(prefix, dir);
+  if (loaded.status === "invalid") {
+    throw new Error(`ZIP prefix ${prefix} could not be read`);
+  }
+  return loaded.status === "ok" ? loaded.rows : [];
 }
 
 export function crosswalkDatasetReady(dir = defaultCrosswalkDir()): boolean {
@@ -159,7 +195,11 @@ export function crosswalkResolver(
       if (!zip) {
         return { status: "invalid_postal_code", message: { key: "engine.hazard.invalid_postal" } };
       }
-      const found = lookupZipCounties(loadZipShard(zip.slice(0, 3), dir), postalCode);
+      const loaded = readZipShard(zip.slice(0, 3), dir);
+      if (loaded.status === "invalid") {
+        return { status: "unavailable", message: { key: "engine.hazard.crosswalk_invalid" } };
+      }
+      const found = lookupZipCounties(loaded.status === "ok" ? loaded.rows : [], postalCode);
       if (found.status === "not_found") {
         return { status: "not_found", message: { key: "engine.hazard.enter_home_zip" } };
       }

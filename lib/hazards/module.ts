@@ -40,15 +40,18 @@ export type HazardModuleResult =
       message: LocalMessage;
       country: string;
       postalCode: string;
+      region?: RegionRef;
+      counties?: readonly RankedCountyRef[];
     }
   | {
       status: "no_provider" | "no_ratings" | "provider_error";
       message: LocalMessage;
       country: string;
       region: RegionRef;
+      counties?: readonly RankedCountyRef[];
     }
   | {
-      status: "ok";
+      status: "ok" | "partial";
       country: string;
       postalCode: string;
       region: RegionRef;
@@ -68,6 +71,13 @@ export type HazardModuleResult =
       ratingNote: LocalMessage | null;
       /** Set when the ZIP meets more than one county. */
       areaNote: LocalMessage | null;
+      /** Set when ratings are the highest across more than one county. */
+      highestNote: LocalMessage | null;
+      /** Counties whose own composite had no comparable rating. */
+      insufficientNote: LocalMessage | null;
+      /** Counties that did not return ratings while another county did. */
+      partialNote: LocalMessage | null;
+      missingCounties: readonly HazardCountyRef[];
       groups: HazardGroup[];
       otherRatings: HazardRating[];
       /** US Ready.gov actions are not attached outside the US. */
@@ -155,6 +165,7 @@ export async function buildHazardModule(
       thrown: false;
     } => item.ratings?.status === "ok",
   );
+  const located = resolved.counties ? { counties: resolved.counties } : {};
   if (ready.length === 0) {
     const primary = fetched[0];
     if (!primary || primary.thrown || !primary.ratings) {
@@ -163,6 +174,7 @@ export async function buildHazardModule(
         message: { key: "engine.hazard.provider_error" },
         country,
         region: resolved.region,
+        ...located,
       };
     }
     if (primary.ratings.status === "unavailable") {
@@ -171,6 +183,8 @@ export async function buildHazardModule(
         message: primary.ratings.message,
         country,
         postalCode: input.postalCode,
+        region: resolved.region,
+        ...located,
       };
     }
     return {
@@ -178,6 +192,7 @@ export async function buildHazardModule(
       message: { key: "engine.hazard.no_ratings" },
       country,
       region: resolved.region,
+      ...located,
     };
   }
 
@@ -265,9 +280,20 @@ export async function buildHazardModule(
   const lead = ready[0]!.ratings;
   const region = { ...resolved.region };
   if (!region.subdivisionCode && lead.area?.state) region.subdivisionCode = lead.area.state;
+  const missingCounties = fetched
+    .filter((item) => item.ratings?.status !== "ok")
+    .map((item) => item.county);
+  const insufficientCounties = ready
+    .filter((item) => {
+      const rating = item.ratings.composite?.rating;
+      return rating !== undefined && NON_COMPARABLE.has(rating);
+    })
+    .map((item) => item.county);
+  const comparableWinner = bestComposite !== null && !NON_COMPARABLE.has(bestComposite.rating);
+  const countyCount = resolved.counties?.length ?? (targets.length > 1 ? targets.length : 0);
 
   return {
-    status: "ok",
+    status: missingCounties.length > 0 ? "partial" : "ok",
     country,
     postalCode: input.postalCode,
     region,
@@ -279,6 +305,25 @@ export async function buildHazardModule(
     compositeCounty,
     ratingNote: comparable.ratingNote,
     areaNote: areaNoteFor(resolved.counties),
+    highestNote:
+      countyCount > 1
+        ? { key: "engine.hazard.highest_across_counties", params: { count: countyCount } }
+        : null,
+    insufficientNote:
+      comparableWinner && insufficientCounties.length > 0
+        ? {
+            key: "engine.hazard.county_insufficient",
+            params: { counties: insufficientCounties.map((county) => county.name).join(", ") },
+          }
+        : null,
+    partialNote:
+      missingCounties.length > 0
+        ? {
+            key: "engine.hazard.partial_counties",
+            params: { counties: missingCounties.map((county) => county.name).join(", ") },
+          }
+        : null,
+    missingCounties,
     groups,
     otherRatings: [...otherByKey.values()],
     actionsIncluded,

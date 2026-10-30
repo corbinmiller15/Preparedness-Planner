@@ -18,6 +18,7 @@ import {
   clearZipCountyCrosswalkCache,
   countyName,
   crosswalkFileReads,
+  crosswalkResolver,
   loadZipShard,
   parseZipShardJson,
 } from "@/lib/location/us/crosswalk-file";
@@ -229,6 +230,22 @@ describe("crosswalk shards", () => {
     expect(loadZipShard("065", dir).map((row) => row.countyFips)).toEqual(["09170"]);
     expect(loadZipShard("065", dir).some((row) => row.zip === "10001")).toBe(false);
     expect(crosswalkFileReads() - before).toBe(2);
+  });
+
+  it("reports a corrupt prefix file instead of a missing ZIP", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "crosswalk-bad-"));
+    writeFileSync(path.join(dir, "index.json"), "{}\n");
+    writeFileSync(path.join(dir, "422.json"), "{not json");
+    clearZipCountyCrosswalkCache();
+    const resolver = crosswalkResolver(dir);
+    await expect(resolver?.resolve("42223")).resolves.toEqual({
+      status: "unavailable",
+      message: { key: "engine.hazard.crosswalk_invalid" },
+    });
+    await expect(resolver?.resolve("42223")).resolves.toMatchObject({
+      status: "unavailable",
+      message: { key: "engine.hazard.crosswalk_invalid" },
+    });
   });
 
   it("uses bundled Census names, including a Connecticut planning region", () => {

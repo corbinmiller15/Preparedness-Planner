@@ -97,6 +97,12 @@ const enUS = {
     "Counties are ranked by share of this ZIP's land area. A population share was not available, so this is not a count of residents.",
   "engine.hazard.population_weight":
     "Counties are ranked by estimated share of 2020 Census population. The estimate allocates each tract's population by land area inside the ZIP.",
+  "engine.hazard.highest_across_counties":
+    "Each rating is the highest across the {count} counties this ZIP touches. The county is shown with the rating.",
+  "engine.hazard.partial_counties": "Ratings are unavailable for {counties}.",
+  "engine.hazard.county_insufficient":
+    "No comparable National Risk Index rating for {counties}. That is not a low-risk result.",
+  "engine.hazard.crosswalk_invalid": "The ZIP to county data for this area could not be read.",
   "engine.hazard.power_outage":
     "Power outage is not a National Risk Index hazard. The actions have no county rating.",
   "engine.hazard.gb_unavailable":

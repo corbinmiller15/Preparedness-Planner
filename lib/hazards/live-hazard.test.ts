@@ -155,17 +155,19 @@ describe("live hazard plans", () => {
         fetchImpl: async (url) => {
           calls += 1;
           const fips = decodeURIComponent(String(url)).match(/STCOFIPS='(\d{5})'/)?.[1] ?? "";
-          const higher = fips === "47125";
+          const montgomery = fips === "47125";
           return new Response(
             JSON.stringify({
               features: [
                 {
                   attributes: {
                     STCOFIPS: fips,
-                    RISK_RATNG: higher ? "Relatively High" : "Relatively Low",
-                    RISK_SCORE: higher ? 87 : 40,
-                    ERQK_RISKR: higher ? "Relatively High" : "Relatively Low",
-                    ERQK_RISKS: higher ? 80 : 20,
+                    RISK_RATNG: montgomery ? "Relatively Moderate" : "Relatively Low",
+                    RISK_SCORE: montgomery ? 87 : 40,
+                    ERQK_RISKR: "Relatively Moderate",
+                    ERQK_RISKS: 50,
+                    HWAV_RISKR: montgomery ? "Relatively Moderate" : "Relatively Low",
+                    HWAV_RISKS: montgomery ? 40 : 10,
                   },
                 },
               ],
@@ -182,9 +184,85 @@ describe("live hazard plans", () => {
     expect(plan.hazards.region.name).toBe("Christian County");
     expect(plan.hazards.counties?.map((county) => county.id)).toEqual(["21047", "47125"]);
     const earthquake = plan.hazards.groups.find((group) => group.hazard === "Earthquake");
-    expect(earthquake?.rating).toBe("relatively_high");
-    expect(earthquake?.ratingCounty).toEqual({ id: "47125", name: "Montgomery County" });
+    expect(earthquake?.rating).toBe("relatively_moderate");
+    expect(earthquake?.ratingCounty).toEqual({ id: "21047", name: "Christian County" });
+    const heat = plan.hazards.groups.find((group) => group.hazard === "Extreme heat");
+    expect(heat?.rating).toBe("relatively_moderate");
+    expect(heat?.ratingCounty).toEqual({ id: "47125", name: "Montgomery County" });
     expect(plan.hazards.compositeCounty).toEqual({ id: "47125", name: "Montgomery County" });
+    expect(plan.hazards.highestNote).toEqual({
+      key: "engine.hazard.highest_across_counties",
+      params: { count: 2 },
+    });
+  });
+
+  it("keeps county names when every National Risk Index request fails", async () => {
+    clearFemaNriCache();
+    const plan = await buildPreparednessPlan(
+      input("42223"),
+      defaultHazardDependencies({
+        provider: "fema_nri",
+        cacheTtlMs: 0,
+        fetchImpl: async () => {
+          throw new Error("offline");
+        },
+      }),
+    );
+    expect(plan.hazards.status).toBe("unavailable");
+    if (plan.hazards.status !== "unavailable") return;
+    expect(plan.hazards.region?.name).toBe("Christian County");
+    expect(plan.hazards.counties?.map((county) => county.name)).toEqual([
+      "Christian County",
+      "Montgomery County",
+    ]);
+  });
+
+  it("marks a split ZIP partial when one county does not return ratings", async () => {
+    clearFemaNriCache();
+    const plan = await buildPreparednessPlan(
+      input("42223"),
+      defaultHazardDependencies({
+        provider: "fema_nri",
+        cacheTtlMs: 0,
+        fetchImpl: async (url) => {
+          const fips = decodeURIComponent(String(url)).match(/STCOFIPS='(\d{5})'/)?.[1] ?? "";
+          if (fips === "47125") return new Response("nope", { status: 500 });
+          return ratingResponse(fips, "Relatively Low", 40);
+        },
+      }),
+    );
+    expect(plan.hazards.status).toBe("partial");
+    if (plan.hazards.status !== "partial") return;
+    expect(plan.hazards.missingCounties).toEqual([{ id: "47125", name: "Montgomery County" }]);
+    expect(plan.hazards.partialNote).toEqual({
+      key: "engine.hazard.partial_counties",
+      params: { counties: "Montgomery County" },
+    });
+    expect(plan.hazards.region.name).toBe("Christian County");
+  });
+
+  it("notes a county that has insufficient data while another county has a rating", async () => {
+    clearFemaNriCache();
+    const plan = await buildPreparednessPlan(
+      input("42223"),
+      defaultHazardDependencies({
+        provider: "fema_nri",
+        cacheTtlMs: 0,
+        fetchImpl: async (url) => {
+          const fips = decodeURIComponent(String(url)).match(/STCOFIPS='(\d{5})'/)?.[1] ?? "";
+          if (fips === "47125") return ratingResponse(fips, "Insufficient Data", null);
+          return ratingResponse(fips, "Relatively Low", 40);
+        },
+      }),
+    );
+    expect(plan.hazards.status).toBe("ok");
+    if (plan.hazards.status !== "ok") return;
+    expect(plan.hazards.composite?.rating).toBe("relatively_low");
+    expect(plan.hazards.compositeCounty).toEqual({ id: "21047", name: "Christian County" });
+    expect(plan.hazards.insufficientNote).toEqual({
+      key: "engine.hazard.county_insufficient",
+      params: { counties: "Montgomery County" },
+    });
   });
 
   it("uses the Census county name when the National Risk Index omits one", async () => {
@@ -239,8 +317,11 @@ describe("live hazard plans", () => {
     expect(crosswalkFileReads() - before).toBe(1);
   });
 
-  it("keeps the Next.js build from downloading the crosswalk", () => {
+  it("keeps the Next.js build from downloading the crosswalk or Google fonts", () => {
     const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { scripts: { build: string } };
     expect(pkg.scripts.build).toBe("next build");
+    const layout = readFileSync("app/layout.tsx", "utf8");
+    expect(layout).not.toContain("next/font/google");
+    expect(layout).toContain("next/font/local");
   });
 });
