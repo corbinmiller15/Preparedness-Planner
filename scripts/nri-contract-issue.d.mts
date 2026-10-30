@@ -46,3 +46,5 @@ export function failureBody(runUrl: string): string;
 export function failureAgainBody(runUrl: string): string;
 
 export function inactivityBody(runUrl: string): string;
+
+export function parseCommentList(raw: string): Array<{ createdAt?: string; body?: string }>;

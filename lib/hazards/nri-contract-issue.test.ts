@@ -10,6 +10,7 @@ import {
   failurePlan,
   inactivityBody,
   issueLabelArgs,
+  parseCommentList,
   selectIssue,
 } from "../../scripts/nri-contract-issue.mjs";
 
@@ -86,7 +87,10 @@ describe("FEMA contract issue", () => {
     );
     expect(now - Date.parse("2026-10-28T00:00:00.000Z")).toBeLessThan(FAILURE_COMMENT_INTERVAL_MS);
     expect(failurePlan("failure", [reminded], now)).toEqual({ action: "none" });
-    expect(failurePlan("disabled_inactivity", [reminded], now)).toEqual({ action: "none" });
+    expect(failurePlan("disabled_inactivity", [reminded], now)).toEqual({
+      action: "comment",
+      number: 12,
+    });
 
     const stale = issue(
       12,
@@ -128,6 +132,24 @@ describe("FEMA contract issue", () => {
     );
   });
 
+  it("parses a JSON array of comments, including pretty-printed output", () => {
+    const pretty = `[
+  {
+    "createdAt": "2026-10-28T00:00:00.000Z",
+    "body": "first\\nsecond"
+  },
+  {
+    "created_at": "2026-10-01T00:00:00.000Z",
+    "body": "older"
+  }
+]`;
+    expect(parseCommentList(pretty)).toEqual([
+      { createdAt: "2026-10-28T00:00:00.000Z", body: "first\nsecond" },
+      { createdAt: "2026-10-01T00:00:00.000Z", body: "older" },
+    ]);
+    expect(() => parseCommentList('{"body":"not an array"}')).toThrow(/JSON array/);
+  });
+
   it("reads the contract workflow state from the Actions API without hiding errors", () => {
     const yaml = readFileSync(".github/workflows/ci.yml", "utf8");
     expect(yaml).toContain(
@@ -139,8 +161,23 @@ describe("FEMA contract issue", () => {
       "github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository",
     );
     expect(yaml).toContain("::warning::");
-    expect(yaml).toContain("group: nri-contract");
     const contract = readFileSync(".github/workflows/nri-contract.yml", "utf8");
-    expect(contract).toContain("group: nri-contract");
+    expect(jobSection(yaml, "verify")).not.toContain("concurrency:");
+    expect(jobSection(yaml, "contract-schedule")).not.toContain("concurrency:");
+    expect(jobSection(yaml, "contract-issue")).toContain("group: nri-contract-issue");
+    expect(jobSection(contract, "enable")).not.toContain("concurrency:");
+    expect(jobSection(contract, "contract")).not.toContain("concurrency:");
+    expect(jobSection(contract, "record")).toContain("group: nri-contract-issue");
+    expect(contract).not.toMatch(/^concurrency:/m);
   });
 });
+
+function jobSection(yaml: string, jobName: string): string {
+  const header = `\n  ${jobName}:\n`;
+  const start = yaml.indexOf(header);
+  expect(start, jobName).toBeGreaterThanOrEqual(0);
+  const after = yaml.slice(start + header.length);
+  const next = after.search(/\n  [a-z0-9-]+:\n/);
+  const body = next === -1 ? after : after.slice(0, next);
+  return `${header}${body}`;
+}

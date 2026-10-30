@@ -67,6 +67,7 @@ export function failurePlan(outcome, issues, nowMs = Date.now()) {
   if (outcome !== "failure" && outcome !== "disabled_inactivity") return { action: "none" };
   if (!existing) return { action: "create" };
   if (!isOpen(existing)) return { action: "reopen", number: existing.number };
+  if (outcome === "disabled_inactivity") return { action: "comment", number: existing.number };
   if (!reminderDue(existing, nowMs)) return { action: "none" };
   return { action: "comment", number: existing.number };
 }
@@ -160,17 +161,31 @@ function listIssues(title, label) {
   return [...merged.values()];
 }
 
+/** Parses one JSON array from `gh api --jq`, including pretty-printed output. */
+export function parseCommentList(raw) {
+  const value = JSON.parse(String(raw));
+  if (!Array.isArray(value)) {
+    throw new Error("issue comments response was not a JSON array");
+  }
+  return value.map((comment) => {
+    if (!comment || typeof comment !== "object") {
+      throw new Error("issue comments response was not a JSON array");
+    }
+    return {
+      createdAt: comment.createdAt ?? comment.created_at,
+      body: comment.body,
+    };
+  });
+}
+
 function listComments(number) {
   const raw = gh([
     "api",
-    "--paginate",
-    `repos/{owner}/{repo}/issues/${number}/comments`,
+    `repos/{owner}/{repo}/issues/${number}/comments?per_page=100&sort=created&direction=desc`,
     "--jq",
-    ".[] | {createdAt: .created_at, body: .body}",
+    "[.[] | {createdAt: .created_at, body: .body}]",
   ]);
-  const text = String(raw).trim();
-  if (!text) return [];
-  return text.split("\n").map((line) => JSON.parse(line));
+  return parseCommentList(raw);
 }
 
 function attachReminders(issues) {
