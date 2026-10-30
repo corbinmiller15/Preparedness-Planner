@@ -2,6 +2,8 @@ export const FAILURE_TITLE: string;
 export const FAILURE_LABEL: string;
 export const FAILURE_COMMENT_INTERVAL_MS: number;
 export const REMINDER_MARKER: string;
+export const DISABLED_MARKER: string;
+export const COMMENT_LOOKBACK_MS: number;
 
 export type ContractComment = {
   body?: string;
@@ -48,3 +50,9 @@ export function failureAgainBody(runUrl: string): string;
 export function inactivityBody(runUrl: string): string;
 
 export function parseCommentList(raw: string): Array<{ createdAt?: string; body?: string }>;
+
+export function commentPagePath(number: number, page: number, nowMs?: number): string;
+
+export function collectCommentPages(
+  fetchPage: (page: number) => string,
+): Array<{ createdAt?: string; body?: string }>;

@@ -1,10 +1,14 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  COMMENT_LOOKBACK_MS,
+  DISABLED_MARKER,
   FAILURE_COMMENT_INTERVAL_MS,
   FAILURE_LABEL,
   FAILURE_TITLE,
   REMINDER_MARKER,
+  collectCommentPages,
+  commentPagePath,
   failureAgainBody,
   failureBody,
   failurePlan,
@@ -126,10 +130,51 @@ describe("FEMA contract issue", () => {
     });
     expect(issueLabelArgs(12)).toEqual(["issue", "edit", "12", "--add-label", FAILURE_LABEL]);
     expect(issueLabelArgs(12)).not.toContain("--body");
-    expect(inactivityBody("https://example.test/run")).toContain(REMINDER_MARKER);
+    expect(inactivityBody("https://example.test/run")).toContain(DISABLED_MARKER);
+    expect(inactivityBody("https://example.test/run")).not.toContain(REMINDER_MARKER);
     expect(inactivityBody("https://example.test/run")).not.toContain(
       "The original failure description.",
     );
+  });
+
+  it("skips a second disabled alert within a week of its own marker", () => {
+    const recent = issue(
+      12,
+      FAILURE_TITLE,
+      FAILURE_LABEL,
+      "OPEN",
+      "2026-10-01T00:00:00.000Z",
+      "The original failure description.",
+      [
+        { body: failureAgainBody("https://example.test/2"), createdAt: "2026-10-29T00:00:00.000Z" },
+        { body: inactivityBody("https://example.test/run"), createdAt: "2026-10-28T00:00:00.000Z" },
+      ],
+    );
+    expect(now - Date.parse("2026-10-28T00:00:00.000Z")).toBeLessThan(FAILURE_COMMENT_INTERVAL_MS);
+    expect(failurePlan("disabled_inactivity", [recent], now)).toEqual({ action: "none" });
+    const opened = issue(
+      12,
+      FAILURE_TITLE,
+      FAILURE_LABEL,
+      "OPEN",
+      "2026-10-29T00:00:00.000Z",
+      inactivityBody("https://example.test/run"),
+    );
+    expect(failurePlan("disabled_inactivity", [opened], now)).toEqual({ action: "none" });
+
+    const stale = issue(
+      12,
+      FAILURE_TITLE,
+      FAILURE_LABEL,
+      "OPEN",
+      "2026-09-01T00:00:00.000Z",
+      "The original failure description.",
+      [{ body: inactivityBody("https://example.test/run"), createdAt: "2026-10-01T00:00:00.000Z" }],
+    );
+    expect(failurePlan("disabled_inactivity", [stale], now)).toEqual({
+      action: "comment",
+      number: 12,
+    });
   });
 
   it("parses a JSON array of comments, including pretty-printed output", () => {
@@ -148,6 +193,43 @@ describe("FEMA contract issue", () => {
       { createdAt: "2026-10-01T00:00:00.000Z", body: "older" },
     ]);
     expect(() => parseCommentList('{"body":"not an array"}')).toThrow(/JSON array/);
+  });
+
+  it("requests comments since eight days ago and fetches the next page when a page is full", () => {
+    const first = new URLSearchParams(commentPagePath(12, 1, now).split("?")[1]);
+    expect(commentPagePath(12, 1, now).startsWith("repos/{owner}/{repo}/issues/12/comments?")).toBe(
+      true,
+    );
+    expect(first.get("per_page")).toBe("100");
+    expect(first.get("page")).toBe("1");
+    expect(first.get("since")).toBe(new Date(now - COMMENT_LOOKBACK_MS).toISOString());
+    expect(first.has("sort")).toBe(false);
+    expect(first.has("direction")).toBe(false);
+    expect(new URLSearchParams(commentPagePath(12, 2, now).split("?")[1]).get("page")).toBe("2");
+
+    const calls: string[] = [];
+    const full = JSON.stringify(
+      Array.from({ length: 100 }, () => ({
+        createdAt: "2026-10-22T00:00:00.000Z",
+        body: "old",
+      })),
+    );
+    const tail = JSON.stringify([
+      {
+        createdAt: "2026-10-28T00:00:00.000Z",
+        body: inactivityBody("https://example.test/run"),
+      },
+    ]);
+    const comments = collectCommentPages((page) => {
+      calls.push(commentPagePath(12, page, now));
+      return page === 1 ? full : tail;
+    });
+    expect(calls.map((path) => new URLSearchParams(path.split("?")[1]).get("page"))).toEqual([
+      "1",
+      "2",
+    ]);
+    expect(comments).toHaveLength(101);
+    expect(comments.at(-1)?.body).toContain(DISABLED_MARKER);
   });
 
   it("reads the contract workflow state from the Actions API without hiding errors", () => {

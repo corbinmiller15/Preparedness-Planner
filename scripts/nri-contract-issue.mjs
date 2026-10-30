@@ -11,6 +11,10 @@ export const FAILURE_COMMENT_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
  * The weekly clock uses only these, not other people's comments.
  */
 export const REMINDER_MARKER = "<!-- nri-contract-reminder -->";
+/** Marks a disabled_inactivity alert. Its weekly clock is separate from failure reminders. */
+export const DISABLED_MARKER = "<!-- nri-contract-disabled -->";
+/** Issue comments are oldest-first. Eight days still covers a seven-day reminder. */
+export const COMMENT_LOOKBACK_MS = 8 * 24 * 60 * 60 * 1000;
 
 export function labelNames(issue) {
   const labels = Array.isArray(issue?.labels) ? issue.labels : [];
@@ -35,16 +39,16 @@ function isOpen(issue) {
   return String(issue.state).toLowerCase() === "open";
 }
 
-/** Newest reminder this workflow posted, from its own comments or opening body. */
-export function lastReminderAt(issue) {
+/** Newest post of this marker, from this workflow's opening body or its own comments. */
+export function lastMarkerAt(issue, marker) {
   const times = [];
-  if (String(issue?.body ?? "").includes(REMINDER_MARKER)) {
+  if (String(issue?.body ?? "").includes(marker)) {
     const created = Date.parse(issue.createdAt ?? "");
     if (Number.isFinite(created)) times.push(created);
   }
   const comments = Array.isArray(issue?.comments) ? issue.comments : [];
   for (const comment of comments) {
-    if (!String(comment?.body ?? "").includes(REMINDER_MARKER)) continue;
+    if (!String(comment?.body ?? "").includes(marker)) continue;
     const created = Date.parse(comment.createdAt ?? "");
     if (Number.isFinite(created)) times.push(created);
   }
@@ -52,8 +56,13 @@ export function lastReminderAt(issue) {
   return Math.max(...times);
 }
 
-function reminderDue(issue, nowMs) {
-  const last = lastReminderAt(issue);
+/** Newest failure reminder this workflow posted. */
+export function lastReminderAt(issue) {
+  return lastMarkerAt(issue, REMINDER_MARKER);
+}
+
+function markerDue(issue, marker, nowMs) {
+  const last = lastMarkerAt(issue, marker);
   if (last === null) return true;
   return nowMs - last >= FAILURE_COMMENT_INTERVAL_MS;
 }
@@ -67,8 +76,8 @@ export function failurePlan(outcome, issues, nowMs = Date.now()) {
   if (outcome !== "failure" && outcome !== "disabled_inactivity") return { action: "none" };
   if (!existing) return { action: "create" };
   if (!isOpen(existing)) return { action: "reopen", number: existing.number };
-  if (outcome === "disabled_inactivity") return { action: "comment", number: existing.number };
-  if (!reminderDue(existing, nowMs)) return { action: "none" };
+  const marker = outcome === "disabled_inactivity" ? DISABLED_MARKER : REMINDER_MARKER;
+  if (!markerDue(existing, marker, nowMs)) return { action: "none" };
   return { action: "comment", number: existing.number };
 }
 
@@ -113,7 +122,7 @@ export function inactivityBody(runUrl) {
     "Re-enable the workflow in the Actions tab. While the schedule is still enabled, each run calls `gh workflow enable`. That call is reported to reset the timer, but GitHub does not document it. A workflow already disabled for inactivity cannot run the call.",
     "",
     runUrl,
-    REMINDER_MARKER,
+    DISABLED_MARKER,
   ].join("\n");
 }
 
@@ -178,14 +187,37 @@ export function parseCommentList(raw) {
   });
 }
 
-function listComments(number) {
-  const raw = gh([
-    "api",
-    `repos/{owner}/{repo}/issues/${number}/comments?per_page=100&sort=created&direction=desc`,
-    "--jq",
-    "[.[] | {createdAt: .created_at, body: .body}]",
-  ]);
-  return parseCommentList(raw);
+/** One page of issue comments. The API is oldest-first and ignores sort. */
+export function commentPagePath(number, page, nowMs = Date.now()) {
+  const since = new Date(nowMs - COMMENT_LOOKBACK_MS).toISOString();
+  const params = new URLSearchParams({
+    since,
+    per_page: "100",
+    page: String(page),
+  });
+  return `repos/{owner}/{repo}/issues/${number}/comments?${params.toString()}`;
+}
+
+/** Fetches further pages while a page is full. Each page is one JSON array. */
+export function collectCommentPages(fetchPage) {
+  const comments = [];
+  for (let page = 1; page <= 20; page += 1) {
+    const batch = parseCommentList(fetchPage(page));
+    comments.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return comments;
+}
+
+function listComments(number, nowMs = Date.now()) {
+  return collectCommentPages((page) =>
+    gh([
+      "api",
+      commentPagePath(number, page, nowMs),
+      "--jq",
+      "[.[] | {createdAt: .created_at, body: .body}]",
+    ]),
+  );
 }
 
 function attachReminders(issues) {
