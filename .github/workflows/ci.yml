@@ -26,3 +26,30 @@ jobs:
       - run: npm run test:e2e
         env:
           CI: true
+
+  # The contract schedule cannot report disabled_inactivity itself: a disabled
+  # workflow does not run. This job still runs on push and pull request.
+  contract-schedule:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: nri-contract-inactivity
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Alert if the contract schedule was disabled for inactivity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CONTRACT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          state="$(gh workflow view nri-contract.yml --json state --jq .state 2>/dev/null || true)"
+          echo "Contract workflow state: ${state:-unknown}"
+          if [ "$state" = "disabled_inactivity" ]; then
+            CONTRACT_OUTCOME=disabled_inactivity node scripts/nri-contract-issue.mjs
+          fi
