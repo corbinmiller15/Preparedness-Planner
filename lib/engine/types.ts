@@ -18,6 +18,13 @@ export type PlanPerson = {
   label: string;
   age: number | null;
   birthYear: number | null;
+  /**
+   * 1–12. With `birthYear`, completed age is exact except during the birth month,
+   * when `birthDay` is also required.
+   */
+  birthMonth: number | null;
+  /** Day of the month. With `birthYear` and `birthMonth`, completed age is exact. */
+  birthDay: number | null;
   sex: "female" | "male" | "unspecified" | null;
   pregnancyStatus: PregnancyStatus | null;
   isChild: boolean;
@@ -127,6 +134,8 @@ export type MemberCalories =
       personId: string;
       label: string;
       age: number;
+      /** False when the age is the lower figure from a birth year, or from a birth month without a day. */
+      ageExact: boolean;
       dailyKcal: number;
       tierKcal: number;
       days: number;
@@ -142,6 +151,7 @@ export type MemberCalories =
       personId: string;
       label: string;
       age: number;
+      ageExact: boolean;
       dailyKcal: number;
       tierKcal: number;
       days: number;

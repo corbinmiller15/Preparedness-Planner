@@ -157,12 +157,13 @@ function memberCalories(
   const base = memberBase(person);
   const ageResult = resolveAge(person, asOf);
   if (!ageResult.ok) {
+    const underTwo = ageResult.message.key === "engine.food.under_two";
     return {
       ...base,
       status: "no_source_data",
       message: ageResult.message,
-      factIds: [],
-      gapIds: [],
+      factIds: underTwo ? ["GAP-02"] : [],
+      gapIds: underTwo ? ["GAP-02"] : [],
     };
   }
   if (ageResult.age < 2) {
@@ -222,6 +223,13 @@ function memberCalories(
       gapIds: ["GAP-02"],
     },
   ];
+  if (!ageResult.exact) {
+    notes.push({
+      message: ageResult.message,
+      factIds: [],
+      gapIds: [],
+    });
+  }
   const activity = {
     activityLevel: person.activityLevel,
     activityDefinition: ACTIVITY_DEFINITIONS[person.activityLevel],
@@ -232,6 +240,7 @@ function memberCalories(
       ...base,
       status: "partial",
       age: ageResult.age,
+      ageExact: ageResult.exact,
       dailyKcal: dailyBase,
       tierKcal: dailyBase * days,
       days,
@@ -260,6 +269,7 @@ function memberCalories(
     ...base,
     status: "calculated",
     age: ageResult.age,
+    ageExact: ageResult.exact,
     dailyKcal,
     tierKcal: dailyKcal * days,
     days,

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { buildPreparednessPlan, type PlanInput, type PlanPerson } from "@/lib/engine";
-import { getFact } from "@/lib/facts";
+import { SOURCED_DURATION_DAYS } from "@/lib/assumptions/assumptions";
+import { getFact, TIER_FACTS, WATER_FACTS } from "@/lib/facts";
+import { translate } from "@/lib/i18n";
+import { TIER_DAYS } from "@/lib/facts/tiers";
+import type { HazardProvider } from "@/lib/hazards/types";
 import { US_LIQUID_GALLON_IN_LITRES } from "@/lib/units";
 import { createFemaNriHazardProvider } from "@/lib/hazards/us/fema-nri";
 import { createUsFixtureNriProvider } from "@/lib/hazards/us/fixture-provider";
@@ -15,6 +19,8 @@ function person(overrides: Partial<PlanPerson> = {}): PlanPerson {
     label: "Alex",
     age: 30,
     birthYear: null,
+    birthMonth: null,
+    birthDay: null,
     sex: "female",
     pregnancyStatus: null,
     isChild: false,
@@ -85,6 +91,7 @@ describe("preparedness engine", () => {
     expect(month.assumptions.map((item) => item.id)).toEqual([
       "ASM-WTR-REMAINDER",
       "ASM-SUPPLIES-REMAINDER",
+      "ASM-PETS",
     ]);
     expect(month.assumptions.every((item) => item.kind === "assumption")).toBe(true);
     expect(JSON.stringify(month.assumptions)).not.toMatch(/\d+\s+gallons/);
@@ -120,7 +127,7 @@ describe("preparedness engine", () => {
     const goBag = await buildPreparednessPlan(input({ tier: "go_bag" }));
     expect(goBag.water.status === "calculated" && goBag.water.totalGallons).toBe(3);
     expect(goBag.water.status === "calculated" && goBag.water.assumptions).toEqual([]);
-    expect(goBag.assumptions).toEqual([]);
+    expect(goBag.assumptions.map((item) => item.id)).toEqual(["ASM-PETS"]);
     expect(goBag.food.status).toBe("calculated");
     if (goBag.food.status !== "calculated") return;
     expect(goBag.food.kind).toBe("sourced");
@@ -190,15 +197,36 @@ describe("preparedness engine", () => {
     });
   });
 
-  it("uses birth year only with an as-of date", async () => {
+  it("calculates an exact age from birth month and year", async () => {
     const aged = await buildPreparednessPlan(
-      input({ people: [person({ age: null, birthYear: 2000, sex: "male" })] }),
+      input({
+        people: [person({ age: null, birthYear: 2000, birthMonth: 1, birthDay: 15, sex: "male" })],
+      }),
     );
     expect(aged.food.status === "calculated" && aged.food.members[0]).toMatchObject({
       age: 26,
       bandId: "CAL-020",
       dailyKcal: 2600,
     });
+    const yearOnly = await buildPreparednessPlan(
+      input({ people: [person({ age: null, birthYear: 2000, sex: "male" })] }),
+    );
+    expect(yearOnly.food.status).toBe("calculated");
+    if (yearOnly.food.status !== "calculated") return;
+    expect(yearOnly.food.members[0]).toMatchObject({
+      status: "calculated",
+      age: 25,
+      ageExact: false,
+      bandId: "CAL-019",
+      dailyKcal: 2800,
+    });
+    expect(
+      yearOnly.food.members[0]?.status === "calculated" && yearOnly.food.members[0].notes,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: { key: "engine.food.age_not_exact" } }),
+      ]),
+    );
     const missing = await buildPreparednessPlan(
       input({ asOf: undefined, people: [person({ age: null, birthYear: 2000 })] }),
     );
@@ -340,4 +368,342 @@ describe("preparedness engine", () => {
     );
     expect(createUsFixtureNriProvider().id).toBe("us_nri_fixture");
   });
+
+  it("checks short, long, and ZIP+4 postal codes", async () => {
+    const cases = ["1234", "123456", "", "   "] as const;
+    for (const postalCode of cases) {
+      const plan = await buildPreparednessPlan(input({ postalCode }));
+      expect(plan.hazards.status, postalCode).toBe("invalid_postal_code");
+    }
+    const zip4 = await buildPreparednessPlan(input({ postalCode: "12345-6789" }));
+    expect(zip4.hazards.status).toBe("not_found");
+    const padded = await buildPreparednessPlan(input({ postalCode: " 70112 " }));
+    expect(padded.hazards.status).toBe("ok");
+    if (padded.hazards.status !== "ok") return;
+    expect(padded.hazards.region).toMatchObject({ id: "22071", name: "Orleans Parish" });
+  });
+
+  it("keeps an unknown hazard key and a null attribute feature from crashing", async () => {
+    const stub: HazardProvider = {
+      country: "US",
+      id: "stub_unknown",
+      async ratingsForRegion() {
+        return {
+          status: "ok",
+          provenance: "live",
+          providerId: "stub_unknown",
+          composite: null,
+          disclaimer: null,
+          hazards: [
+            {
+              key: "XYZ",
+              name: "Unmapped",
+              rating: "relatively_low",
+              raw: "Relatively Low",
+              score: null,
+            },
+          ],
+        };
+      },
+    };
+    const plan = await buildPreparednessPlan(input(), {
+      resolvers: [createUsZipCountyResolver()],
+      providers: [stub],
+    });
+    expect(plan.hazards.status).toBe("ok");
+    if (plan.hazards.status !== "ok") return;
+    expect(plan.hazards.otherRatings).toEqual([
+      {
+        key: "XYZ",
+        name: "Unmapped",
+        rating: "relatively_low",
+        raw: "Relatively Low",
+        score: null,
+      },
+    ]);
+    expect(plan.hazards.groups.some((group) => group.nriKeys.includes("XYZ"))).toBe(false);
+
+    const empty = await buildPreparednessPlan(input(), {
+      resolvers: [createUsZipCountyResolver()],
+      providers: [
+        createFemaNriHazardProvider({
+          fetchImpl: async () => new Response(JSON.stringify({ features: [{ attributes: null }] })),
+        }),
+      ],
+    });
+    expect(empty.hazards.status).toBe("no_ratings");
+
+    const malformed = await buildPreparednessPlan(input(), {
+      resolvers: [createUsZipCountyResolver()],
+      providers: [
+        createFemaNriHazardProvider({
+          fetchImpl: async () => new Response("not-json", { status: 200 }),
+        }),
+      ],
+    });
+    expect(malformed.hazards.status).toBe("provider_error");
+  });
+
+  it("names pet water and food as an assumption on every tier", async () => {
+    for (const tier of PLAN_TIERS) {
+      const plan = await buildPreparednessPlan(input({ tier }));
+      expect(plan.assumptions.map((item) => item.label)).toContain(
+        "pets: add water/food for each pet",
+      );
+      const pets = plan.assumptions.find((item) => item.id === "ASM-PETS");
+      expect(pets).toMatchObject({ kind: "assumption", topic: "pets" });
+      expect(JSON.stringify(pets)).not.toMatch(/\d+\s+gallons/);
+    }
+  });
+
+  it("notes extra water for breastfeeding and not for a healthy 70-year-old", async () => {
+    const nursing = await buildPreparednessPlan(
+      input({ people: [person({ pregnancyStatus: "breastfeeding_0_6" })] }),
+    );
+    expect(nursing.water.status).toBe("calculated");
+    if (nursing.water.status !== "calculated") return;
+    expect(nursing.water.notes.some((note) => note.gapIds.includes("GAP-03"))).toBe(true);
+    expect(
+      nursing.water.notes.some((note) => note.message.key === "engine.water.special_group"),
+    ).toBe(true);
+
+    const senior = await buildPreparednessPlan(
+      input({
+        people: [
+          person({
+            age: 70,
+            sex: "female",
+            activityLevel: "sedentary",
+            pregnancyStatus: "none",
+            specialNeeds: null,
+            isChild: false,
+          }),
+        ],
+      }),
+    );
+    expect(senior.water.status).toBe("calculated");
+    if (senior.water.status !== "calculated") return;
+    expect(senior.water.notes.some((note) => note.gapIds.includes("GAP-03"))).toBe(false);
+    expect(senior.food.status === "calculated" && senior.food.dailyKcal).toBe(1600);
+  });
+
+  it("sums a mixed household at the published calorie rows", async () => {
+    const plan = await buildPreparednessPlan(
+      input({
+        people: [
+          person({
+            id: "toddler",
+            label: "Toddler",
+            age: 2,
+            sex: "male",
+            activityLevel: "sedentary",
+            isChild: true,
+          }),
+          person({ id: "teen", label: "Teen", age: 16, sex: "male", activityLevel: "active" }),
+          person({ id: "dad", label: "Dad", age: 35, sex: "male", activityLevel: "moderate" }),
+          person({ id: "mom", label: "Mom", age: 35, sex: "female", activityLevel: "moderate" }),
+          person({
+            id: "elder",
+            label: "Elder",
+            age: 80,
+            sex: "female",
+            activityLevel: "sedentary",
+          }),
+        ],
+      }),
+    );
+    expect(plan.food.status).toBe("calculated");
+    if (plan.food.status !== "calculated") return;
+    expect(
+      plan.food.members.map((member) => (member.status === "calculated" ? member.dailyKcal : 0)),
+    ).toEqual([1000, 3200, 2600, 2000, 1600]);
+    expect(plan.food.dailyKcal).toBe(10400);
+    expect(plan.food.tierKcal).toBe(10400 * 3);
+  });
+
+  it("converts a hot-climate supply to metric litres", async () => {
+    const plan = await buildPreparednessPlan(
+      input({
+        hotClimate: true,
+        unitSystem: "metric",
+        tier: "1_month",
+        people: [
+          person(),
+          person({ id: "b", label: "B" }),
+          person({ id: "c", label: "C" }),
+          person({ id: "d", label: "D" }),
+        ],
+      }),
+    );
+    expect(plan.water.status).toBe("calculated");
+    if (plan.water.status !== "calculated") return;
+    expect(plan.water.totalGallons).toBe(112);
+    expect(plan.water.hotClimateFactor).toBe(2);
+    expect(plan.water.volume).toMatchObject({
+      unit: "L",
+      system: "metric",
+      value: 112 * US_LIQUID_GALLON_IN_LITRES,
+    });
+  });
+});
+
+describe("birth year, water notes, and rotation", () => {
+  it("keeps calories for a household stored with birth year only", async () => {
+    const plan = await buildPreparednessPlan(
+      input({
+        people: [
+          person({
+            id: "ada",
+            label: "Ada",
+            age: null,
+            birthYear: 1996,
+            sex: "female",
+            activityLevel: "moderate",
+            isChild: false,
+          }),
+          person({
+            id: "ben",
+            label: "Ben",
+            age: null,
+            birthYear: 1995,
+            sex: "male",
+            activityLevel: "moderate",
+            isChild: false,
+          }),
+        ],
+      }),
+    );
+    expect(plan.food.status).toBe("calculated");
+    if (plan.food.status !== "calculated") return;
+    expect(plan.food.dailyKcal).toBe(4600);
+    expect(
+      plan.food.members.map((member) => (member.status === "calculated" ? member.age : null)),
+    ).toEqual([29, 30]);
+    for (const member of plan.food.members) {
+      expect(member.status).toBe("calculated");
+      if (member.status !== "calculated") continue;
+      expect(member.ageExact).toBe(false);
+      expect(member.notes.some((note) => note.message.key === "engine.food.age_not_exact")).toBe(
+        true,
+      );
+    }
+    expect(translate({ key: "engine.food.age_not_exact" })).toContain(
+      "add a full birth date for exact numbers",
+    );
+  });
+
+  it("adds the extra-water note when age is unknown and isChild is false", async () => {
+    const unknown = await buildPreparednessPlan(
+      input({ people: [person({ age: null, birthYear: null, isChild: false })] }),
+    );
+    expect(unknown.water.status).toBe("calculated");
+    if (unknown.water.status !== "calculated") return;
+    expect(unknown.water.totalGallons).toBe(3);
+    expect(unknown.water.notes.some((note) => note.gapIds.includes("GAP-03"))).toBe(true);
+
+    const birthYearChild = await buildPreparednessPlan(
+      input({
+        people: [
+          person(),
+          person({
+            id: "kid",
+            label: "Kid",
+            age: null,
+            birthYear: 2024,
+            isChild: false,
+            sex: "male",
+            activityLevel: "sedentary",
+          }),
+        ],
+      }),
+    );
+    expect(birthYearChild.food.members?.find((member) => member.personId === "kid")).toMatchObject({
+      status: "no_source_data",
+      message: { key: "engine.food.under_two" },
+    });
+    expect(birthYearChild.water.status).toBe("calculated");
+    if (birthYearChild.water.status !== "calculated") return;
+    expect(birthYearChild.water.totalGallons).toBe(6);
+    expect(birthYearChild.water.notes.some((note) => note.gapIds.includes("GAP-03"))).toBe(true);
+  });
+
+  it("shows the altitude and dry-climate note without changing gallons", async () => {
+    const plan = await buildPreparednessPlan(input());
+    expect(plan.water.status).toBe("calculated");
+    if (plan.water.status !== "calculated") return;
+    expect(plan.water.totalGallons).toBe(3);
+    expect(plan.water.appliedGallonsPerPersonPerDay).toBe(1);
+    expect(plan.water.factIds).toContain("WTR-009");
+    expect(plan.water.notes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: { key: "engine.water.altitude_dry" },
+          factIds: ["WTR-009"],
+        }),
+      ]),
+    );
+  });
+
+  it("includes the 6-month water rotation and the pantry rotation line", async () => {
+    const plan = await buildPreparednessPlan(input({ tier: "12_month" }));
+    const water = WATER_FACTS.find((fact) => fact.id === "WTR-011");
+    const pantry = TIER_FACTS.find((fact) => fact.id === "TIER-ROT");
+    expect(plan.rotation.map((item) => item.text)).toEqual([water?.text, pantry?.guidance]);
+    expect(plan.rotation[0]).toMatchObject({
+      kind: "sourced",
+      factIds: ["WTR-011", "GAP-06"],
+    });
+    expect(plan.rotation[1]?.factIds).toEqual(["TIER-ROT"]);
+    expect(plan.water.status).toBe("calculated");
+    if (plan.water.status !== "calculated") return;
+    expect(plan.water.factIds).toEqual(expect.arrayContaining(["WTR-011", "GAP-06"]));
+    expect(plan.water.notes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: { key: "engine.water.rotation" },
+          factIds: ["WTR-011", "GAP-06"],
+          gapIds: ["GAP-06"],
+        }),
+      ]),
+    );
+    expect(plan.water.totalGallons).toBe(14);
+    expect(plan.food.status === "calculated" && plan.food.tierKcal).toBe(2000 * 365);
+  });
+});
+
+describe("tier and household size grid", () => {
+  const sizes = [0, 1, 12, 15] as const;
+  it.each(PLAN_TIERS.flatMap((tier) => sizes.map((count) => [tier, count] as const)))(
+    "%s with %i people",
+    async (tier, count) => {
+      const plan = await buildPreparednessPlan(
+        input({
+          tier,
+          people: Array.from({ length: count }, (_, index) =>
+            person({ id: `p${index}`, label: `Person ${index}` }),
+          ),
+        }),
+      );
+      if (count === 0) {
+        expect(plan.water).toMatchObject({
+          status: "no_source_data",
+          message: { key: "engine.plan.no_people" },
+        });
+        expect(plan.food).toMatchObject({
+          status: "no_source_data",
+          message: { key: "engine.plan.no_people" },
+        });
+        return;
+      }
+      const days = TIER_DAYS[tier].days;
+      const waterDays = Math.min(days, SOURCED_DURATION_DAYS);
+      expect(plan.water.status).toBe("calculated");
+      if (plan.water.status !== "calculated" || plan.food.status !== "calculated") return;
+      expect(plan.water.totalGallons).toBe(count * waterDays);
+      expect(plan.water.days).toBe(waterDays);
+      expect(plan.food.dailyKcal).toBe(2000 * count);
+      expect(plan.food.days).toBe(days);
+      expect(plan.food.tierKcal).toBe(2000 * count * days);
+    },
+  );
 });

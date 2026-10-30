@@ -24,11 +24,24 @@ export const ASSUMPTIONS = [
     explanation:
       "The checklist is a several-day kit. These sources do not publish quantities of batteries, medicine, hygiene items, or other non-food supplies past about two weeks. Extra non-food supplies for the rest of the tier are an assumption, not a cited amount.",
   },
+  {
+    id: "ASM-PETS",
+    kind: "assumption",
+    topic: "pets",
+    label: "pets: add water/food for each pet",
+    explanation:
+      "People are the only rows this plan counts. Add drinking water and food for each pet on top of that. Sources say to store more for pets and do not publish a per-pet gallon or calorie figure, so nothing is added to the totals.",
+  },
 ] as const;
 
 export type Assumption = (typeof ASSUMPTIONS)[number];
 
+const DURATION_ASSUMPTIONS = ASSUMPTIONS.filter(
+  (item) => item.topic === "water" || item.topic === "supplies",
+);
+const PETS_ASSUMPTION = ASSUMPTIONS.find((item) => item.id === "ASM-PETS");
+
 export function assumptionsForTier(tierDays: number): Assumption[] {
-  if (tierDays <= SOURCED_DURATION_DAYS) return [];
-  return [...ASSUMPTIONS];
+  const duration = tierDays <= SOURCED_DURATION_DAYS ? [] : [...DURATION_ASSUMPTIONS];
+  return PETS_ASSUMPTION ? [...duration, PETS_ASSUMPTION] : duration;
 }
