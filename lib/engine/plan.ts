@@ -36,8 +36,8 @@ export type PreparednessPlan = {
   hazards: HazardModuleResult;
   assumptions: ReturnType<typeof assumptionsForTier>;
   /**
-   * True when any person's calorie age is not an exact birthday.
-   * The UI uses this to ask for a full birth date.
+   * True when a calorie figure was filled in from an inexact age.
+   * Missing sex or activity does not set this. The UI uses it to ask for a full birth date.
    */
   hasApproximateAges: boolean;
   defaultBudgetPath: BudgetPath;
@@ -55,17 +55,20 @@ export async function buildPreparednessPlan(
     budgetLevel: input.budgetLevel,
     storageSpace: input.storageSpace,
   };
-  const resolvedAges = input.people.map((person) => ({
-    id: person.id,
-    age: resolveAge(person, input.asOf),
-  }));
-  const hasApproximateAges = resolvedAges.some((item) => item.age.ok && !item.age.exact);
   const ages = new Map(
-    resolvedAges.map((item) => [item.id, item.age.ok ? item.age.age : null] as const),
+    input.people.map((person) => {
+      const resolved = resolveAge(person, input.asOf);
+      return [person.id, resolved.ok ? resolved.age : null] as const;
+    }),
   );
   const hazards = await buildHazardModule(
     { country: input.country, postalCode: input.postalCode },
     deps,
+  );
+  const food = planFood({ people: input.people, context, asOf: input.asOf });
+  const members = "members" in food ? (food.members ?? []) : [];
+  const hasApproximateAges = members.some(
+    (member) => member.status !== "no_source_data" && member.ageExact === false,
   );
   return {
     context: {
@@ -83,7 +86,7 @@ export async function buildPreparednessPlan(
       hotClimate: input.hotClimate ?? false,
       ages,
     }),
-    food: planFood({ people: input.people, context, asOf: input.asOf }),
+    food,
     kit: planKit(context),
     foodSafety: planFoodSafety(context),
     rotation: planRotation(context),

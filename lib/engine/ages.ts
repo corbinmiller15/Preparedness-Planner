@@ -2,10 +2,6 @@ import { calorieBandForAge, kcalFor } from "@/lib/facts/calories";
 import type { LocalMessage } from "@/lib/i18n";
 import type { PlanPerson } from "@/lib/engine/types";
 
-/** Ages 13 through 19. A birth year can place someone on either side of a band edge. */
-const TEEN_MIN_AGE = 13;
-const TEEN_MAX_AGE = 19;
-
 export type CalendarDate = {
   year: number;
   month: number;
@@ -73,26 +69,13 @@ function acceptAge(age: number): ResolvedAge {
 }
 
 /**
- * Birth year alone spans two completed ages until the birthday.
- * The default is the lower one: as-of year − birth year − 1, and never below 0.
- * Teens use whichever of those two ages has the larger USDA calorie cell, so a
- * missing birthday does not under-supply a growing person. Ties keep the lower age.
- * The result is flagged not exact. If the lower age is under 2, there is no calorie row.
- * On 31 December every birthday that year has passed, so the age is exact
- * (as-of year − birth year) and is not run through this helper.
+ * Two possible completed ages, one year apart, until the birthday is known.
+ * Calories use the larger USDA cell. Equal cells keep the younger age.
+ * If the pair is 1 and 2, the age-2 cell is used and flagged not exact.
+ * If both ages are under 2, there is no calorie row.
+ * A known birthday, a birth month that has already passed, and 31 December
+ * (every birthday that year has passed) stay exact and do not use this helper.
  */
-function conservativeAge(minAge: number): ResolvedAge {
-  const age = Math.max(0, minAge);
-  if (!Number.isInteger(age) || age > 130) return invalidAge;
-  if (age < 2) return underTwo;
-  return { ok: true, age, exact: false, message: approximate };
-}
-
-function isTeenAge(age: number): boolean {
-  return age >= TEEN_MIN_AGE && age <= TEEN_MAX_AGE;
-}
-
-/** Age whose published calorie cell is larger. Equal cells keep the younger age. */
 function ageWithHigherCalorieBand(lower: number, higher: number, person: PlanPerson): number {
   const sex = person.sex;
   const activity = person.activityLevel;
@@ -103,21 +86,15 @@ function ageWithHigherCalorieBand(lower: number, higher: number, person: PlanPer
   return kcalFor(higherBand, sex, activity) > kcalFor(lowerBand, sex, activity) ? higher : lower;
 }
 
-function birthYearOnlyAge(person: PlanPerson, yearDiff: number): ResolvedAge {
+function ambiguousAge(person: PlanPerson, yearDiff: number): ResolvedAge {
   const lower = Math.max(0, yearDiff - 1);
   const higher = yearDiff;
+  if (higher < 2) return underTwo;
+  if (lower < 2) return { ok: true, age: 2, exact: false, message: approximate };
   if (lower > 130) return invalidAge;
-  if (lower < 2) return underTwo;
-  const teen = isTeenAge(lower) || isTeenAge(higher);
-  const age = teen ? ageWithHigherCalorieBand(lower, higher, person) : lower;
+  const age = ageWithHigherCalorieBand(lower, higher, person);
   if (age > 130) return invalidAge;
   return { ok: true, age, exact: false, message: approximate };
-}
-
-function fromRange(minAge: number, maxAge: number): ResolvedAge {
-  if (maxAge < 0 || minAge > 130) return invalidAge;
-  if (minAge < 2) return underTwo;
-  return conservativeAge(minAge);
 }
 
 export function resolveAge(person: PlanPerson, asOf: string | undefined): ResolvedAge {
@@ -153,8 +130,8 @@ export function resolveAge(person: PlanPerson, asOf: string | undefined): Resolv
       return acceptAge(date.month > month ? yearDiff : yearDiff - 1);
     }
     if (date.day === daysInMonth(date.year, date.month)) return acceptAge(yearDiff);
-    return fromRange(yearDiff - 1, yearDiff);
+    return ambiguousAge(person, yearDiff);
   }
   if (date.month === 12 && date.day === 31) return acceptAge(yearDiff);
-  return birthYearOnlyAge(person, yearDiff);
+  return ambiguousAge(person, yearDiff);
 }
