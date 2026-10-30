@@ -101,6 +101,46 @@ describe("calendar dates and exact age", () => {
     });
   });
 
+  it("uses the higher teen calorie band and keeps a younger child's lower age", () => {
+    const asOf = "2026-10-30";
+    expect(
+      resolveAge(person({ birthYear: 2011, sex: "male", activityLevel: "moderate" }), asOf),
+    ).toEqual({
+      ok: true,
+      age: 15,
+      exact: false,
+      message: { key: "engine.food.age_not_exact" },
+    });
+    expect(
+      resolveAge(person({ birthYear: 2007, sex: "male", activityLevel: "active" }), asOf),
+    ).toEqual({
+      ok: true,
+      age: 18,
+      exact: false,
+      message: { key: "engine.food.age_not_exact" },
+    });
+    expect(
+      resolveAge(person({ birthYear: 2015, sex: "male", activityLevel: "moderate" }), asOf),
+    ).toEqual({
+      ok: true,
+      age: 10,
+      exact: false,
+      message: { key: "engine.food.age_not_exact" },
+    });
+    expect(
+      resolveAge(
+        person({
+          birthYear: 2007,
+          birthMonth: 1,
+          birthDay: 15,
+          sex: "male",
+          activityLevel: "active",
+        }),
+        asOf,
+      ),
+    ).toEqual({ ok: true, age: 19, exact: true });
+  });
+
   it("leaves a December 2024 child out of the calorie total", async () => {
     const plan = await buildPreparednessPlan({
       country: "US",

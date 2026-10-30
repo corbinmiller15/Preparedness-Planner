@@ -35,6 +35,11 @@ export type PreparednessPlan = {
   rotation: SupplyItem[];
   hazards: HazardModuleResult;
   assumptions: ReturnType<typeof assumptionsForTier>;
+  /**
+   * True when any person's calorie age is not an exact birthday.
+   * The UI uses this to ask for a full birth date.
+   */
+  hasApproximateAges: boolean;
   defaultBudgetPath: BudgetPath;
   budgetPaths: Record<BudgetPath, BudgetPathOffer>;
 };
@@ -50,11 +55,13 @@ export async function buildPreparednessPlan(
     budgetLevel: input.budgetLevel,
     storageSpace: input.storageSpace,
   };
+  const resolvedAges = input.people.map((person) => ({
+    id: person.id,
+    age: resolveAge(person, input.asOf),
+  }));
+  const hasApproximateAges = resolvedAges.some((item) => item.age.ok && !item.age.exact);
   const ages = new Map(
-    input.people.map((person) => {
-      const resolved = resolveAge(person, input.asOf);
-      return [person.id, resolved.ok ? resolved.age : null] as const;
-    }),
+    resolvedAges.map((item) => [item.id, item.age.ok ? item.age.age : null] as const),
   );
   const hazards = await buildHazardModule(
     { country: input.country, postalCode: input.postalCode },
@@ -82,6 +89,7 @@ export async function buildPreparednessPlan(
     rotation: planRotation(context),
     hazards,
     assumptions: assumptionsForTier(TIER_DAYS[input.tier].days),
+    hasApproximateAges,
     defaultBudgetPath: BUDGET_LEVEL_TO_PATH[input.budgetLevel],
     budgetPaths: budgetPathOffers(input.tier, input.budgetLevel),
   };
