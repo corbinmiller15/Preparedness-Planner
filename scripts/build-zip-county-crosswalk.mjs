@@ -29,6 +29,9 @@ export const CT_ZCTA_PLANNING_REGION_URL =
 export const CT_COUNTY_CROSSWALK_URL =
   "https://www2.census.gov/geo/docs/reference/ct_change/ct_cou_to_cousub_crosswalk.txt";
 
+export const CENSUS_COUNTY_NAMES_URL =
+  "https://www2.census.gov/geo/docs/reference/codes2020/national_county2020.txt";
+
 export const CT_RELATIONSHIP_DOCS =
   "https://www.census.gov/geographies/reference-files/2022/geo/relationship-files.html";
 
@@ -320,8 +323,73 @@ export function crosswalkDocument(rows) {
     weight: "population_or_land_area",
     weightDefinition:
       "p is a share of estimated 2020 population. l is a share of land area (AREALAND_PART / ZCTA land). Counties are ranked by that share, then by county FIPS.",
+    layout: "zip3",
     zcta,
   };
+}
+
+/** @param {string} countyText @param {string} ctText */
+export function parseCountyNames(countyText, ctText) {
+  /** @type {Record<string, string>} */
+  const names = {};
+  const lines = countyText.replace(/^\uFEFF/, "").split(/\r?\n/);
+  const header = (lines[0] ?? "").split("|").map((name) => name.trim());
+  const stateIndex = header.indexOf("STATEFP");
+  const countyIndex = header.indexOf("COUNTYFP");
+  const nameIndex = header.indexOf("COUNTYNAME");
+  if (stateIndex < 0 || countyIndex < 0 || nameIndex < 0) {
+    throw new Error("County name file is missing STATEFP, COUNTYFP, or COUNTYNAME");
+  }
+  for (const line of lines.slice(1)) {
+    if (!line.trim()) continue;
+    const cols = line.split("|");
+    const fips = `${cols[stateIndex] ?? ""}${cols[countyIndex] ?? ""}`;
+    const name = cols[nameIndex]?.trim() ?? "";
+    if (/^\d{5}$/.test(fips) && name) names[fips] = name;
+  }
+  for (const line of ctText.replace(/^\uFEFF/, "").split(/\r?\n/)) {
+    if (!/^\d{2}\|/.test(line)) continue;
+    const cols = line.split("|");
+    const fips = `09${cols[3] ?? ""}`;
+    const name = cols[4]?.trim() ?? "";
+    if (/^091\d\d$/.test(fips) && name) names[fips] = name;
+  }
+  return names;
+}
+
+export async function writeShardedCrosswalk(document, names, root) {
+  const { mkdir, writeFile, rm } = await import("node:fs/promises");
+  const dir = path.join(root, "zip-county");
+  await mkdir(dir, { recursive: true });
+  const { zcta, ...header } = document;
+  header.layout = "zip3";
+  await writeFile(path.join(dir, "index.json"), `${JSON.stringify(header)}\n`);
+  /** @type {Map<string, Record<string, unknown>>} */
+  const shards = new Map();
+  for (const [zip, pairs] of Object.entries(zcta)) {
+    const prefix = zip.slice(0, 3);
+    const shard = shards.get(prefix) ?? {};
+    shard[zip] = pairs;
+    shards.set(prefix, shard);
+  }
+  for (const [prefix, shard] of shards) {
+    await writeFile(path.join(dir, `${prefix}.json`), `${JSON.stringify(shard)}\n`);
+  }
+  await writeFile(
+    path.join(root, "county-names.json"),
+    `${JSON.stringify({
+      vintage: "2020",
+      ctPlanningRegionVintage: "2022",
+      sourceUrl: CENSUS_COUNTY_NAMES_URL,
+      ctSourceUrl: CT_COUNTY_CROSSWALK_URL,
+      documentationUrl: "https://www.census.gov/library/reference/code-lists/ansi.html",
+      license:
+        "Public domain (U.S. government work, 17 U.S.C. § 105). Cite the U.S. Census Bureau.",
+      names,
+    })}\n`,
+  );
+  await rm(path.join(root, "zip-county-crosswalk.json"), { force: true });
+  return shards.size;
 }
 
 function parseGeoPopulation(geoText) {
@@ -440,18 +508,43 @@ async function main() {
   );
   if (rows.length < 30_000) throw new Error(`Unexpectedly few crosswalk rows: ${rows.length}`);
   const document = crosswalkDocument(rows);
-  const { mkdir } = await import("node:fs/promises");
-  await mkdir(path.dirname(out), { recursive: true });
-  await writeFile(out, `${JSON.stringify(document)}\n`);
+  const [countyNamesText, ctNamesText] = await Promise.all([
+    download(CENSUS_COUNTY_NAMES_URL).then((body) => body.toString("utf8")),
+    download(CT_COUNTY_CROSSWALK_URL).then((body) => body.toString("utf8")),
+  ]);
+  const prefixes = await writeShardedCrosswalk(
+    document,
+    parseCountyNames(countyNamesText, ctNamesText),
+    path.join(process.cwd(), "data"),
+  );
   const zips = new Set(rows.map((row) => row[0]));
   const populationZips = new Set(rows.filter((row) => row[3] === "p").map((row) => row[0]));
   console.log(
-    `Wrote ${rows.length} county parts for ${zips.size} ZCTAs (${populationZips.size} ranked by population) to ${out}`,
+    `Wrote ${rows.length} county parts for ${zips.size} ZCTAs (${populationZips.size} ranked by population) across ${prefixes} ZIP prefixes`,
   );
+  void out;
+}
+
+async function splitExisting() {
+  const { readFile } = await import("node:fs/promises");
+  const raw = JSON.parse(
+    await readFile(path.join(process.cwd(), "data", "zip-county-crosswalk.json"), "utf8"),
+  );
+  const [countyNamesText, ctNamesText] = await Promise.all([
+    download(CENSUS_COUNTY_NAMES_URL).then((body) => body.toString("utf8")),
+    download(CT_COUNTY_CROSSWALK_URL).then((body) => body.toString("utf8")),
+  ]);
+  const prefixes = await writeShardedCrosswalk(
+    raw,
+    parseCountyNames(countyNamesText, ctNamesText),
+    path.join(process.cwd(), "data"),
+  );
+  console.log(`Split ${Object.keys(raw.zcta).length} ZCTAs into ${prefixes} prefixes`);
 }
 
 if (isDirectRun()) {
-  main().catch((error) => {
+  const run = process.argv[2] === "--split" ? splitExisting : main;
+  run().catch((error) => {
     console.error(error instanceof Error ? error.message : error);
     process.exit(1);
   });

@@ -419,6 +419,8 @@ describe("preparedness engine", () => {
         rating: "relatively_low",
         raw: "Relatively Low",
         score: null,
+        countyId: "22071",
+        countyName: "Orleans Parish",
       },
     ]);
     expect(plan.hazards.groups.some((group) => group.nriKeys.includes("XYZ"))).toBe(false);

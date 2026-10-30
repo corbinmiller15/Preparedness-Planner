@@ -11,7 +11,8 @@ import path from "node:path";
 const FEMA_NRI_COUNTIES_QUERY =
   "https://services.arcgis.com/XG15cJAlne2vxtgt/arcgis/rest/services/National_Risk_Index_Counties/FeatureServer/0/query";
 
-const CROSSWALK_PATH = path.join(process.cwd(), "data", "zip-county-crosswalk.json");
+const CROSSWALK_DIR = path.join(process.cwd(), "data", "zip-county");
+const COUNTY_NAMES_PATH = path.join(process.cwd(), "data", "county-names.json");
 
 function usage() {
   console.error("Usage: npm run hazard:lookup -- <ZIP>");
@@ -76,14 +77,25 @@ async function main() {
     console.error("That postal code is not a 5-digit ZIP or ZIP+4.");
     process.exit(1);
   }
-  let document;
+  let shard;
+  let index;
+  let names = {};
   try {
-    document = JSON.parse(await readFile(CROSSWALK_PATH, "utf8"));
+    index = JSON.parse(await readFile(path.join(CROSSWALK_DIR, "index.json"), "utf8"));
+    shard = JSON.parse(await readFile(path.join(CROSSWALK_DIR, `${zip.slice(0, 3)}.json`), "utf8"));
   } catch {
-    console.error(`Crosswalk file not found at ${CROSSWALK_PATH}`);
+    console.error(`Crosswalk shard not found under ${CROSSWALK_DIR}`);
     process.exit(2);
   }
-  const counties = countiesForZip(document.zcta, zip);
+  try {
+    names = JSON.parse(await readFile(COUNTY_NAMES_PATH, "utf8")).names ?? {};
+  } catch {
+    names = {};
+  }
+  const counties = countiesForZip(shard, zip).map((county) => ({
+    ...county,
+    countyName: names[county.countyFips] ?? county.countyFips,
+  }));
   if (counties.length === 0) {
     console.error(
       `${zip} is not in the Census ZCTA crosswalk. PO Box and some unique ZIPs are left out. Enter the ZIP where you live.`,
@@ -107,11 +119,11 @@ async function main() {
       {
         zip,
         crosswalk: {
-          vintage: document.vintage ?? null,
-          sourceUrl: document.sourceUrl ?? null,
-          populationSourceUrl: document.populationSourceUrl ?? null,
-          ctSourceUrl: document.ctSourceUrl ?? null,
-          weight: document.weight ?? null,
+          vintage: index.vintage ?? null,
+          sourceUrl: index.sourceUrl ?? null,
+          populationSourceUrl: index.populationSourceUrl ?? null,
+          ctSourceUrl: index.ctSourceUrl ?? null,
+          weight: index.weight ?? null,
         },
         counties: ratings,
         note: "Counties are ranked by estimated 2020 population when that share exists, otherwise by land area. Ratings are FEMA National Risk Index values for each county. This is not an official alert. In an emergency, call 911.",

@@ -19,6 +19,8 @@ export type HazardRating = {
   /** Present only when the provider sent a number. Never derived from the label. */
   score: number | null;
   raw: string | null;
+  countyId?: string;
+  countyName?: string;
 };
 
 export type HazardRatingsOk = {

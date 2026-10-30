@@ -5,8 +5,9 @@ import { clearFemaNriCache } from "@/lib/hazards/us/fema-nri";
 import { defaultHazardDependencies } from "@/lib/hazards/defaults";
 import {
   clearZipCountyCrosswalkCache,
+  countyName,
   crosswalkFileReads,
-  loadZipCountyCrosswalk,
+  loadZipShard,
 } from "@/lib/location/us/crosswalk-file";
 
 function person(): PlanPerson {
@@ -60,14 +61,12 @@ function ratingResponse(fips: string, rating = "Relatively Moderate", score: num
 describe("live hazard plans", () => {
   it("returns both Meade and Pennington for 57719, ranked by weight", async () => {
     clearFemaNriCache();
-    const file = loadZipCountyCrosswalk();
-    expect(file?.vintage).toBe("2020");
-    expect(file?.sourceUrl).toContain("tab20_zcta520_county20_natl.txt");
+    const rows = loadZipShard("577");
     const plan = await buildPreparednessPlan(
       input("57719"),
       defaultHazardDependencies({
         provider: "fema_nri",
-        crosswalkRows: file?.rows,
+        crosswalkRows: rows,
         cacheTtlMs: 0,
         fetchImpl: async (url) => {
           const fips = decodeURIComponent(String(url)).match(/STCOFIPS='(\d{5})'/)?.[1] ?? "";
@@ -86,13 +85,13 @@ describe("live hazard plans", () => {
 
   it("sends a Connecticut ZIP to a planning-region FIPS", async () => {
     clearFemaNriCache();
-    const file = loadZipCountyCrosswalk();
+    const rows = loadZipShard("065");
     let queried = "";
     const plan = await buildPreparednessPlan(
       input("06511"),
       defaultHazardDependencies({
         provider: "fema_nri",
-        crosswalkRows: file?.rows,
+        crosswalkRows: rows,
         cacheTtlMs: 0,
         fetchImpl: async (url) => {
           queried = decodeURIComponent(String(url));
@@ -108,12 +107,11 @@ describe("live hazard plans", () => {
   });
 
   it("asks for a home ZIP for a PO Box code such as 73301", async () => {
-    const file = loadZipCountyCrosswalk();
     const plan = await buildPreparednessPlan(
       input("73301"),
       defaultHazardDependencies({
         provider: "fema_nri",
-        crosswalkRows: file?.rows,
+        crosswalkRows: loadZipShard("733"),
         fetchImpl: async () => {
           throw new Error("PO Box ZIPs are not queried");
         },
@@ -144,6 +142,81 @@ describe("live hazard plans", () => {
       raw: "Insufficient Data",
     });
     expect(plan.hazards.ratingNote?.key).toBe("engine.hazard.insufficient_data");
+  });
+
+  it("rates every county in a split ZIP and keeps the higher hazard with its county", async () => {
+    clearFemaNriCache();
+    let calls = 0;
+    const plan = await buildPreparednessPlan(
+      input("42223"),
+      defaultHazardDependencies({
+        provider: "fema_nri",
+        cacheTtlMs: 0,
+        fetchImpl: async (url) => {
+          calls += 1;
+          const fips = decodeURIComponent(String(url)).match(/STCOFIPS='(\d{5})'/)?.[1] ?? "";
+          const higher = fips === "47125";
+          return new Response(
+            JSON.stringify({
+              features: [
+                {
+                  attributes: {
+                    STCOFIPS: fips,
+                    RISK_RATNG: higher ? "Relatively High" : "Relatively Low",
+                    RISK_SCORE: higher ? 87 : 40,
+                    ERQK_RISKR: higher ? "Relatively High" : "Relatively Low",
+                    ERQK_RISKS: higher ? 80 : 20,
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        },
+      }),
+    );
+    expect(calls).toBe(2);
+    expect(plan.hazards.status).toBe("ok");
+    if (plan.hazards.status !== "ok") return;
+    expect(plan.hazards.region.id).toBe("21047");
+    expect(plan.hazards.region.name).toBe("Christian County");
+    expect(plan.hazards.counties?.map((county) => county.id)).toEqual(["21047", "47125"]);
+    const earthquake = plan.hazards.groups.find((group) => group.hazard === "Earthquake");
+    expect(earthquake?.rating).toBe("relatively_high");
+    expect(earthquake?.ratingCounty).toEqual({ id: "47125", name: "Montgomery County" });
+    expect(plan.hazards.compositeCounty).toEqual({ id: "47125", name: "Montgomery County" });
+  });
+
+  it("uses the Census county name when the National Risk Index omits one", async () => {
+    clearFemaNriCache();
+    const plan = await buildPreparednessPlan(
+      input("06511"),
+      defaultHazardDependencies({
+        provider: "fema_nri",
+        cacheTtlMs: 0,
+        fetchImpl: async () =>
+          new Response(
+            JSON.stringify({
+              features: [
+                {
+                  attributes: {
+                    STCOFIPS: "09170",
+                    RISK_RATNG: "Relatively High",
+                    RISK_SCORE: 95,
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+      }),
+    );
+    expect(plan.hazards.status).toBe("ok");
+    if (plan.hazards.status !== "ok") return;
+    expect(plan.hazards.region.id).toBe("09170");
+    expect(plan.hazards.region.name).toBe(countyName("09170"));
+    expect(plan.hazards.region.name).toBe("South Central Connecticut Planning Region");
+    expect(plan.hazards.counties?.[0]?.name).toBe("South Central Connecticut Planning Region");
   });
 
   it("reads the crosswalk once and queries each county once", async () => {

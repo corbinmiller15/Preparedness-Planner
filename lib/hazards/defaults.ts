@@ -15,7 +15,7 @@ import {
   createUsZipCountyCrosswalkResolver,
   type ZipCountyMatch,
 } from "@/lib/location/us/crosswalk";
-import { crosswalkResolver, defaultCrosswalkPath } from "@/lib/location/us/crosswalk-file";
+import { crosswalkResolver, defaultCrosswalkDir } from "@/lib/location/us/crosswalk-file";
 import { createUsZipCountyResolver } from "@/lib/location/us/zip-county";
 
 export type HazardDependencies = {
@@ -54,7 +54,7 @@ export function defaultHazardDependencies(config: HazardRuntimeConfig = {}): Haz
 
   const resolver = config.crosswalkRows
     ? createUsZipCountyCrosswalkResolver(config.crosswalkRows)
-    : (crosswalkResolver(config.crosswalkPath ?? defaultCrosswalkPath()) ??
+    : (crosswalkResolver(config.crosswalkPath ?? defaultCrosswalkDir()) ??
       createMissingZipCountyResolver());
   return {
     resolvers: [resolver, createGbPostcodeResolver()],

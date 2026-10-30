@@ -92,21 +92,29 @@ export function lookupZipCounties(
   return { status: "found", counties: [...counties] };
 }
 
-function regionFor(row: ZipCountyMatch): RegionRef {
+export type CountyNameLookup = (countyFips: string) => string;
+
+function countyLabel(countyFips: string, nameFor?: CountyNameLookup): string {
+  const name = nameFor?.(countyFips)?.trim();
+  return name ? name : countyFips;
+}
+
+function regionFor(row: ZipCountyMatch, nameFor?: CountyNameLookup): RegionRef {
   const state = stateForCountyFips(row.countyFips);
   return {
     country: "US",
     id: row.countyFips,
-    name: row.countyFips,
+    name: countyLabel(row.countyFips, nameFor),
     kind: "county_or_equivalent",
     subdivisionCode: state?.abbr,
     subdivisionName: state?.name,
   };
 }
 
-function ranked(rows: readonly ZipCountyMatch[]): RankedCountyRef[] {
+function ranked(rows: readonly ZipCountyMatch[], nameFor?: CountyNameLookup): RankedCountyRef[] {
   return rows.map((row) => ({
     id: row.countyFips,
+    name: countyLabel(row.countyFips, nameFor),
     weight: row.weight,
     weightKind: row.weightKind,
   }));
@@ -118,6 +126,7 @@ function ranked(rows: readonly ZipCountyMatch[]): RankedCountyRef[] {
  */
 export function createUsZipCountyCrosswalkResolver(
   rows: readonly ZipCountyMatch[],
+  nameFor?: CountyNameLookup,
 ): PostalRegionResolver {
   const index = indexZipCounties(rows);
   return {
@@ -129,7 +138,11 @@ export function createUsZipCountyCrosswalkResolver(
       }
       if (found.status !== "found") return found;
       const top = found.counties[0]!;
-      return { status: "found", region: regionFor(top), counties: ranked(found.counties) };
+      return {
+        status: "found",
+        region: regionFor(top, nameFor),
+        counties: ranked(found.counties, nameFor),
+      };
     },
   };
 }

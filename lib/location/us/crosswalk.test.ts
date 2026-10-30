@@ -16,9 +16,10 @@ import {
 } from "@/lib/location/us/crosswalk";
 import {
   clearZipCountyCrosswalkCache,
+  countyName,
   crosswalkFileReads,
-  loadZipCountyCrosswalk,
-  parseZipCountyCrosswalkJson,
+  loadZipShard,
+  parseZipShardJson,
 } from "@/lib/location/us/crosswalk-file";
 
 const rows: ZipCountyMatch[] = [
@@ -89,8 +90,8 @@ describe("ZIP to county crosswalk", () => {
         subdivisionName: "Kansas",
       },
       counties: [
-        { id: "20093", weight: 0.75, weightKind: "population" },
-        { id: "40007", weight: 0.25, weightKind: "population" },
+        { id: "20093", name: "20093", weight: 0.75, weightKind: "population" },
+        { id: "40007", name: "40007", weight: 0.25, weightKind: "population" },
       ],
     });
   });
@@ -208,52 +209,33 @@ describe("Census relationship parsing", () => {
   });
 });
 
-describe("crosswalk file", () => {
-  it("reads compact rows and skips a malformed row", () => {
-    const parsed = parseZipCountyCrosswalkJson(
-      JSON.stringify({
-        vintage: "2020",
-        sourceUrl: "https://www2.census.gov/example",
-        weight: "population_or_land_area",
-        zcta: { "10001": [["36061", 1, "p"], ["nope"]] },
-      }),
-    );
-    expect(parsed?.rows).toEqual([
+describe("crosswalk shards", () => {
+  it("reads a prefix shard and skips a malformed row", () => {
+    expect(parseZipShardJson(JSON.stringify({ "10001": [["36061", 1, "p"], ["nope"]] }))).toEqual([
       { zip: "10001", countyFips: "36061", weight: 1, weightKind: "population" },
     ]);
-    expect(parsed?.vintage).toBe("2020");
+    expect(parseZipShardJson("{")).toEqual([]);
   });
 
-  it("returns null for malformed JSON or no usable rows", () => {
-    expect(parseZipCountyCrosswalkJson("{")).toBeNull();
-    expect(
-      parseZipCountyCrosswalkJson(
-        JSON.stringify({
-          vintage: "2020",
-          sourceUrl: "https://example.test",
-          weight: "land_area",
-          zcta: {},
-        }),
-      ),
-    ).toBeNull();
-  });
-
-  it("reads a path once per process", () => {
+  it("loads one ZIP prefix per read and does not load another prefix", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "crosswalk-"));
-    const file = path.join(dir, "zip-county-crosswalk.json");
-    writeFileSync(
-      file,
-      JSON.stringify({
-        vintage: "2020",
-        sourceUrl: "https://www2.census.gov/example",
-        weight: "population_or_land_area",
-        zcta: { "10001": [["36061", 1, "l"]] },
-      }),
-    );
+    writeFileSync(path.join(dir, "100.json"), JSON.stringify({ "10001": [["36061", 1, "l"]] }));
+    writeFileSync(path.join(dir, "065.json"), JSON.stringify({ "06511": [["09170", 1, "p"]] }));
     clearZipCountyCrosswalkCache();
     const before = crosswalkFileReads();
-    expect(loadZipCountyCrosswalk(file)?.rows).toHaveLength(1);
-    expect(loadZipCountyCrosswalk(file)?.rows).toHaveLength(1);
+    expect(loadZipShard("100", dir).map((row) => row.zip)).toEqual(["10001"]);
+    expect(loadZipShard("100", dir)).toHaveLength(1);
     expect(crosswalkFileReads() - before).toBe(1);
+    expect(loadZipShard("065", dir).map((row) => row.countyFips)).toEqual(["09170"]);
+    expect(loadZipShard("065", dir).some((row) => row.zip === "10001")).toBe(false);
+    expect(crosswalkFileReads() - before).toBe(2);
+  });
+
+  it("uses bundled Census names, including a Connecticut planning region", () => {
+    expect(countyName("22071")).toBe("Orleans Parish");
+    expect(countyName("09170")).toBe("South Central Connecticut Planning Region");
+    expect(countyName("47125")).toBe("Montgomery County");
+    expect(countyName("21047")).toBe("Christian County");
+    expect(countyName("22071")).not.toBe("22071");
   });
 });
