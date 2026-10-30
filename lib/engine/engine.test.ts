@@ -609,7 +609,7 @@ describe("birth year, water notes, and rotation", () => {
             id: "kid",
             label: "Kid",
             age: null,
-            birthYear: 2024,
+            birthYear: 2025,
             isChild: false,
             sex: "male",
             activityLevel: "sedentary",
@@ -668,6 +668,174 @@ describe("birth year, water notes, and rotation", () => {
     );
     expect(plan.water.totalGallons).toBe(14);
     expect(plan.food.status === "calculated" && plan.food.tierKcal).toBe(2000 * 365);
+  });
+});
+
+describe("approximate ages", () => {
+  it("feeds a birth-year teen from the higher calorie band and flags the household", async () => {
+    const teen = await buildPreparednessPlan(
+      input({
+        people: [
+          person({
+            id: "teen",
+            label: "Teen",
+            age: null,
+            birthYear: 2011,
+            sex: "male",
+            activityLevel: "moderate",
+          }),
+        ],
+      }),
+    );
+    expect(teen.hasApproximateAges).toBe(true);
+    expect(teen.food.status).toBe("calculated");
+    if (teen.food.status !== "calculated") return;
+    expect(teen.food.dailyKcal).toBe(2600);
+    expect(teen.food.members[0]).toMatchObject({
+      age: 15,
+      ageExact: false,
+      bandId: "CAL-014",
+      dailyKcal: 2600,
+    });
+
+    const active = await buildPreparednessPlan(
+      input({
+        people: [
+          person({
+            id: "older",
+            label: "Older",
+            age: null,
+            birthYear: 2007,
+            sex: "male",
+            activityLevel: "active",
+          }),
+        ],
+      }),
+    );
+    expect(active.hasApproximateAges).toBe(true);
+    expect(active.food.status === "calculated" && active.food.dailyKcal).toBe(3200);
+    expect(active.food.status === "calculated" && active.food.members[0]).toMatchObject({
+      age: 18,
+      ageExact: false,
+      bandId: "CAL-017",
+    });
+
+    const child = await buildPreparednessPlan(
+      input({
+        people: [
+          person({
+            id: "child",
+            label: "Child",
+            age: null,
+            birthYear: 2015,
+            sex: "male",
+            activityLevel: "moderate",
+          }),
+        ],
+      }),
+    );
+    expect(child.food.status === "calculated" && child.food.members[0]).toMatchObject({
+      age: 11,
+      ageExact: false,
+      dailyKcal: 2000,
+    });
+
+    const exactTeen = await buildPreparednessPlan(
+      input({
+        people: [
+          person({
+            age: null,
+            birthYear: 2007,
+            birthMonth: 1,
+            birthDay: 15,
+            sex: "male",
+            activityLevel: "active",
+          }),
+        ],
+      }),
+    );
+    expect(exactTeen.hasApproximateAges).toBe(false);
+    expect(exactTeen.food.status === "calculated" && exactTeen.food.dailyKcal).toBe(3000);
+
+    const underTwo = await buildPreparednessPlan(
+      input({
+        people: [person({ age: null, birthYear: 2025, sex: "male", activityLevel: "sedentary" })],
+      }),
+    );
+    expect(underTwo.hasApproximateAges).toBe(false);
+    expect(underTwo.food.members?.[0]).toMatchObject({
+      status: "no_source_data",
+      message: { key: "engine.food.under_two" },
+    });
+
+    const straddlesTwo = await buildPreparednessPlan(
+      input({
+        people: [person({ age: null, birthYear: 2024, sex: "male", activityLevel: "sedentary" })],
+      }),
+    );
+    expect(straddlesTwo.hasApproximateAges).toBe(true);
+    expect(straddlesTwo.food.status === "calculated" && straddlesTwo.food.dailyKcal).toBe(1000);
+    expect(straddlesTwo.food.status === "calculated" && straddlesTwo.food.members[0]).toMatchObject(
+      {
+        age: 2,
+        ageExact: false,
+        bandId: "CAL-001",
+      },
+    );
+
+    const dated = await buildPreparednessPlan(input());
+    expect(dated.hasApproximateAges).toBe(false);
+  });
+
+  it("does not flag a household whose calories are missing for a reason other than age", async () => {
+    const missingSex = await buildPreparednessPlan(
+      input({
+        people: [person({ age: null, birthYear: 2000, sex: "unspecified" })],
+      }),
+    );
+    expect(missingSex.hasApproximateAges).toBe(false);
+    expect(missingSex.food.members?.[0]).toMatchObject({
+      status: "no_source_data",
+      message: { key: "engine.food.missing_sex" },
+    });
+
+    const missingActivity = await buildPreparednessPlan(
+      input({
+        people: [person({ age: null, birthYear: 2007, sex: "male", activityLevel: null })],
+      }),
+    );
+    expect(missingActivity.hasApproximateAges).toBe(false);
+    expect(missingActivity.food.members?.[0]).toMatchObject({
+      status: "no_source_data",
+      message: { key: "engine.food.missing_activity" },
+    });
+  });
+
+  it("uses the higher calorie cell when the birth month is the current month", async () => {
+    const plan = await buildPreparednessPlan(
+      input({
+        asOf: "2026-10-15",
+        people: [
+          person({
+            age: null,
+            birthYear: 2007,
+            birthMonth: 10,
+            sex: "male",
+            activityLevel: "sedentary",
+          }),
+        ],
+      }),
+    );
+    expect(plan.hasApproximateAges).toBe(true);
+    expect(plan.food.status).toBe("calculated");
+    if (plan.food.status !== "calculated") return;
+    expect(plan.food.dailyKcal).toBe(2600);
+    expect(plan.food.members[0]).toMatchObject({
+      age: 19,
+      ageExact: false,
+      bandId: "CAL-018",
+      dailyKcal: 2600,
+    });
   });
 });
 

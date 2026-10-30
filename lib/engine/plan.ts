@@ -35,6 +35,11 @@ export type PreparednessPlan = {
   rotation: SupplyItem[];
   hazards: HazardModuleResult;
   assumptions: ReturnType<typeof assumptionsForTier>;
+  /**
+   * True when a calorie figure was filled in from an inexact age.
+   * Missing sex or activity does not set this. The UI uses it to ask for a full birth date.
+   */
+  hasApproximateAges: boolean;
   defaultBudgetPath: BudgetPath;
   budgetPaths: Record<BudgetPath, BudgetPathOffer>;
 };
@@ -60,6 +65,11 @@ export async function buildPreparednessPlan(
     { country: input.country, postalCode: input.postalCode },
     deps,
   );
+  const food = planFood({ people: input.people, context, asOf: input.asOf });
+  const members = "members" in food ? (food.members ?? []) : [];
+  const hasApproximateAges = members.some(
+    (member) => member.status !== "no_source_data" && member.ageExact === false,
+  );
   return {
     context: {
       ...context,
@@ -76,12 +86,13 @@ export async function buildPreparednessPlan(
       hotClimate: input.hotClimate ?? false,
       ages,
     }),
-    food: planFood({ people: input.people, context, asOf: input.asOf }),
+    food,
     kit: planKit(context),
     foodSafety: planFoodSafety(context),
     rotation: planRotation(context),
     hazards,
     assumptions: assumptionsForTier(TIER_DAYS[input.tier].days),
+    hasApproximateAges,
     defaultBudgetPath: BUDGET_LEVEL_TO_PATH[input.budgetLevel],
     budgetPaths: budgetPathOffers(input.tier, input.budgetLevel),
   };
